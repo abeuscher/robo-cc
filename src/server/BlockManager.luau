@@ -1,8 +1,8 @@
 -- Owns the block Parts. Every block from Config.BlockTypes is spawned anchored
 -- at match start into its pile; placing and picking up just reposition the same
 -- Part between its pile and the wall. One density for all blocks, so a Wide
--- block (3x the volume) weighs 3x as much. No unanchor / no SetNetworkOwner
--- this session -- that is ATTACK-phase work.
+-- block (3x the volume) weighs 3x as much. Blocks stay anchored through BUILD;
+-- releaseAll() unanchors the wall into server-owned physics at ATTACK start.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -97,6 +97,22 @@ function BlockManager.returnToPile(blockId)
 	entry.part:SetAttribute("Placed", false)
 	entry.placed = false
 	return true
+end
+
+-- ATTACK-phase transition. Every placed block becomes server-owned physics:
+-- unanchor first, then SetNetworkOwner(nil) (it errors on an anchored part).
+-- Blocks never placed aren't part of the wall -- remove them outright rather
+-- than leave physics-active clutter on the pile.
+function BlockManager.releaseAll()
+	for id, entry in blocks do
+		if entry.placed then
+			entry.part.Anchored = false
+			entry.part:SetNetworkOwner(nil)
+		else
+			entry.part:Destroy()
+			blocks[id] = nil
+		end
+	end
 end
 
 -- How many blocks of each type are still in their pile (not on the wall).

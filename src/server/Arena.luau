@@ -42,9 +42,32 @@ function Arena.reset()
 	Arena.root():ClearAllChildren()
 end
 
+-- The baseplate template drops a SpawnLocation at the world origin, which lands
+-- right in the gap between the platforms. Remove any that aren't ours and add a
+-- single invisible, non-colliding spawn on the builder platform -- MatchController
+-- repositions characters onto their marks either way.
+local function resetSpawns(root)
+	for _, inst in Workspace:GetDescendants() do
+		if inst:IsA("SpawnLocation") and not inst:IsDescendantOf(root) then
+			inst:Destroy()
+		end
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "PlayerSpawn"
+	spawn.Anchored = true
+	spawn.CanCollide = false
+	spawn.Transparency = 1
+	spawn.Size = Vector3.new(4, 1, 4)
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Position = Vector3.new(0, Config.GroundLevel + 0.5, Config.BuildZoneOrigin.Z + 8)
+	spawn.Parent = root
+end
+
 function Arena.build()
 	Arena.reset()
 	local root = Arena.root()
+	resetSpawns(root)
 
 	local platformY = Config.GroundLevel - Config.PlatformSize.Y / 2
 	local halfGap = Config.GapWidth / 2

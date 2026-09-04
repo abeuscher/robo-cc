@@ -1,14 +1,18 @@
 -- The state machine. Tracks connected players in join order, assigns Builder /
 -- Attacker, positions their characters, and broadcasts StateChanged. This
--- session runs a single BUILD phase; on ConfirmBuild from the Builder it flips
--- to ATTACK and holds. Solo-permissive: with one player that player is the
--- Builder and the BUILD loop stays fully usable.
+-- session runs a single BUILD phase; on ConfirmBuild from the Builder it
+-- releases the wall, grants ShotsPerTurn, and flips to ATTACK. Each shot is
+-- consumed through consumeShot(); at zero the machine holds (RESOLVE / SWAP are
+-- Pass 3). Solo-permissive: with one player that player is the Builder and the
+-- BUILD loop stays fully usable.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+local BlockManager = require(script.Parent.BlockManager)
 
 local MatchController = {}
 
@@ -25,6 +29,7 @@ local state = {
 	phase = "BUILD",
 	roles = nil,
 	blocksRemaining = initialRemaining(),
+	shotsRemaining = 0,
 	round = 1,
 }
 
@@ -44,6 +49,7 @@ local function broadcast()
 		phase = state.phase,
 		roles = state.roles,
 		blocksRemaining = state.blocksRemaining,
+		shotsRemaining = state.shotsRemaining,
 		round = state.round,
 	})
 end
@@ -98,6 +104,24 @@ function MatchController.isBuilder(player)
 	return state.roles ~= nil and state.roles.builder == player.UserId
 end
 
+function MatchController.isAttacker(player)
+	return state.roles ~= nil and state.roles.attacker == player.UserId
+end
+
+-- Spend one ATTACK shot. Returns false (no shot fired) outside ATTACK or when
+-- none remain. Broadcasts the new count; at zero the machine just holds.
+function MatchController.consumeShot()
+	if state.phase ~= "ATTACK" or state.shotsRemaining <= 0 then
+		return false
+	end
+	state.shotsRemaining -= 1
+	broadcast()
+	if state.shotsRemaining == 0 then
+		print("[server] ATTACK: all shots spent, phase holding")
+	end
+	return true
+end
+
 function MatchController.notifyBlocksRemaining(remaining)
 	state.blocksRemaining = remaining
 	broadcast()
@@ -108,8 +132,10 @@ function MatchController.confirmBuild(player)
 		return
 	end
 	state.phase = "ATTACK"
+	state.shotsRemaining = Config.ShotsPerTurn
+	BlockManager.releaseAll()
 	broadcast()
-	print("[server] BUILD confirmed, phase -> ATTACK (holding)")
+	print(string.format("[server] BUILD confirmed, phase -> ATTACK (%d shots)", state.shotsRemaining))
 end
 
 function MatchController.start()

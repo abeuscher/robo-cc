@@ -46,16 +46,21 @@ local Config = {
 	BuildZoneSize = BUILD_ZONE_SIZE, -- studs, width x height
 	BuildZoneOrigin = Vector3.new(0, BUILD_ZONE_SIZE.Y / 2, GAP_WIDTH / 2 + BLOCK_SIZE.Z / 2), -- plane centre, world space
 
+	-- Weapons (shared)
+	MuzzleHeight = 0.75, -- studs above GroundLevel that both weapons fire from; ~bottom-row height so a flat ballista shot rakes the base
+
 	-- Ballista
+	BallistaMinVelocity = 190, -- floor for the launch meter; BallistaMuzzleVelocity is the ceiling
 	BallistaMuzzleVelocity = 320,
 	BallistaGravityScale = 0.05,
+	BallistaImpact = 60, -- knockback scale applied to a struck block
 
 	-- Catapult
 	CatapultMinForce = 80,
-	CatapultMaxForce = 220,
+	CatapultMaxForce = 150, -- rough: keeps a mid-range arc landing near the wall at this Princess distance
 	CatapultMinAngle = 20, -- degrees
 	CatapultMaxAngle = 70,
-	CatapultImpact = 60, -- impulse scale applied to a struck block
+	CatapultImpact = 60, -- knockback scale applied to a struck block
 
 	-- Match
 	ShotsPerTurn = 6,

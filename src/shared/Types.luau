@@ -36,6 +36,7 @@ export type StatePayload = {
 	phase: Phase,
 	roles: Roles?,
 	blocksRemaining: BlocksRemaining,
+	shotsRemaining: number,
 	round: number,
 }
 

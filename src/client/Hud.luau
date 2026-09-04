@@ -1,6 +1,8 @@
--- Screen-corner readout, driven entirely by StateChanged. Role banner, current
--- phase, blocks-remaining during BUILD, and a "waiting for the other player"
--- line until both roles are filled.
+-- Screen-corner readout. Driven by StateChanged for role / phase / counts, plus
+-- AttackInput.setAttackReadout for the live weapon + angle line. Shows
+-- blocks-remaining during BUILD and shots-remaining + weapon during ATTACK, with
+-- a per-phase controls hint and a "waiting for the other player" line until both
+-- roles are filled.
 
 local Players = game:GetService("Players")
 
@@ -8,7 +10,10 @@ local player = Players.LocalPlayer
 
 local Hud = {}
 
-local gui, roleLabel, phaseLabel, blocksLabel, hintLabel, waitingLabel
+local gui, roleLabel, phaseLabel, blocksLabel, shotsLabel, weaponLabel, hintLabel, waitingLabel
+
+local lastState = nil
+local readout = { weapon = "Ballista", angle = 0 }
 
 local function label(parent, size, color)
 	local l = Instance.new("TextLabel")
@@ -33,8 +38,9 @@ function Hud.start()
 	gui.ResetOnSpawn = false
 
 	local container = Instance.new("Frame")
-	container.Size = UDim2.fromOffset(460, 170)
-	container.Position = UDim2.fromOffset(16, 16)
+	container.Size = UDim2.fromOffset(460, 210)
+	container.AnchorPoint = Vector2.new(1, 1)
+	container.Position = UDim2.new(1, -16, 1, -16)
 	container.BackgroundTransparency = 1
 	container.Parent = gui
 
@@ -45,6 +51,8 @@ function Hud.start()
 	roleLabel = label(container, 28, Color3.fromRGB(238, 238, 238))
 	phaseLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
 	blocksLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
+	shotsLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
+	weaponLabel = label(container, 18, Color3.fromRGB(255, 210, 120))
 	hintLabel = label(container, 15, Color3.fromRGB(150, 155, 165))
 	hintLabel.Size = UDim2.new(1, 0, 0, 36)
 	hintLabel.TextWrapped = true
@@ -55,8 +63,14 @@ function Hud.start()
 	gui.Parent = player:WaitForChild("PlayerGui")
 end
 
-function Hud.update(state)
+-- Redraws every label from lastState + readout. Safe to call before any state
+-- has arrived.
+local function render()
 	Hud.start()
+	if not lastState then
+		return
+	end
+	local state = lastState
 
 	local myRole
 	if state.roles then
@@ -70,20 +84,50 @@ function Hud.update(state)
 	roleLabel.Text = myRole and ("You are the " .. myRole) or "You are a spectator"
 	phaseLabel.Text = "Phase: " .. state.phase
 
-	local buildForMe = state.phase == "BUILD" and myRole == "Builder"
-	blocksLabel.Visible = state.phase == "BUILD"
+	local inBuild = state.phase == "BUILD"
+	local inAttack = state.phase == "ATTACK"
+
+	blocksLabel.Visible = inBuild
 	local remaining = state.blocksRemaining or {}
 	blocksLabel.Text = string.format(
 		"Blocks left  —  Standard: %d   Wide: %d",
 		remaining.Standard or 0,
 		remaining.Wide or 0
 	)
-	hintLabel.Visible = buildForMe
-	hintLabel.Text = "click pile to lift · click cell to place · R rotate · Q drop · click a wall block to return it"
+
+	shotsLabel.Visible = inAttack
+	shotsLabel.Text = string.format("Shots left  —  %d", state.shotsRemaining or 0)
+
+	weaponLabel.Visible = inAttack and myRole == "Attacker"
+	if readout.weapon == "Catapult" then
+		weaponLabel.Text = string.format("Catapult  ·  angle %d°  ·  click, click to launch", readout.angle)
+	else
+		weaponLabel.Text = "Ballista  ·  click, click to launch"
+	end
+
+	local hintForBuilder = inBuild and myRole == "Builder"
+	local hintForAttacker = inAttack and myRole == "Attacker"
+	hintLabel.Visible = hintForBuilder or hintForAttacker
+	if hintForAttacker then
+		hintLabel.Text = "mouse aim · Q/E angle (catapult) · F weapon · click, click at meter target to launch"
+	else
+		hintLabel.Text = "click pile to lift · click cell to place · R rotate · Q drop · click a wall block to return it"
+	end
 
 	local waiting = state.roles == nil or state.roles.attacker == nil
 	waitingLabel.Visible = waiting
 	waitingLabel.Text = waiting and "Waiting for the other player…" or ""
+end
+
+function Hud.update(state)
+	lastState = state
+	render()
+end
+
+-- Called by AttackInput whenever the weapon / angle changes.
+function Hud.setAttackReadout(values)
+	readout = values
+	render()
 end
 
 return Hud

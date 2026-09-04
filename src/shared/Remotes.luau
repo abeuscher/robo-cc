@@ -10,6 +10,7 @@ local EVENT_NAMES = {
 	"PlaceBlock",
 	"PickupBlock",
 	"ConfirmBuild",
+	"FireWeapon",
 	"StateChanged",
 }
 

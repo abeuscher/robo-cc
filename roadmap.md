@@ -2,8 +2,10 @@
 
 Decisions locked in from the kickoff:
 
-- **Aiming input:** mouse sets direction; mouse wheel adjusts force; `Q`/`E` adjusts catapult
-  angle; a key toggles weapon; click fires. Minimal text readout on the HUD, no sliders.
+- **Aiming input:** mouse sets direction; a two-click launch meter (press to start a fill bar
+  swinging up and back down, press again to freeze it and fire) sets force/power for **both**
+  weapons; `Q`/`E` adjusts catapult angle; a key toggles weapon. Minimal text readout on the
+  HUD, no sliders. (Supersedes the original wheel-driven force dial — see Pass 2 in §6.)
 - **Tooling:** you have the Rojo Studio plugin and have synced before, so this doc keeps
   setup notes short.
 - **Cadence:** I implement a whole phase per pass, then hand off for a Studio playtest.
@@ -195,12 +197,34 @@ placement rules were explicitly deferred (see below).
 **Done:** Builder builds a wall from both block types, rotates and rearranges, confirms;
 HUD shows the phase change. Playtested green with two players.
 
-### Pass 2 — ATTACK phase + physics
+### Pass 2 — ATTACK phase + physics — **done (session 002)**
 `releaseAll()`, both weapons, projectile stepping + raycast hits, mouse/wheel/`Q`/`E`/`F`
 input, force+angle readout, shot counter, catapult block knockback. Princess not yet
 killable — just watch blocks fall.
-**Done when:** the Attacker fires 6 shots, both weapons behave distinctly, a base hit can
-topple a tall stack.
+Scope shifted during the session, mostly from playtest feedback: the wheel-driven force dial
+was replaced with a two-click **launch meter** (golf-swing style — press to start a linear
+fill bar swinging up and back down once, press again to freeze it and fire) for **both**
+weapons, not just the catapult; the ballista's fixed muzzle velocity became a
+`BallistaMinVelocity..BallistaMuzzleVelocity` range set the same way, since "more power hits
+harder" still gave the meter a purpose even without a variable landing distance. `Q`/`E` angle
+now only applies to the catapult. The ballista's aim was flattened to horizontal-only (free
+vertical aim contradicted its "flat trajectory" identity and caused it to strike high rows
+instead of the base). Projectiles are anchored and manually integrated on `Heartbeat` rather
+than unanchored/network-owned as first sketched (same server-authoritative raycast hits, no
+physics integrator to fight). Catapult/ballista knockback is mass-scaled
+(`impulse * block.AssemblyMass`) rather than the literal roadmap formula, which was too weak
+to topple anything at Standard block mass. Added beyond the original plan: a world-space
+crosshair (green on a wall hit) with a light dashed trajectory preview, a locked-zoom
+over-the-shoulder attack camera for the Attacker, and crude part-built weapon props
+(`WeaponView`) at the firing position. The catapult's own aim ray was fixed to ignore the wall
+(spec: "ignores wall height if aimed well"), so standing close to a tall wall no longer caps
+how far over it the player can aim — only the real simulated arc decides whether a shot
+actually clears it.
+**Done:** the Attacker fires 6 shots with either weapon through the launch meter, both weapons
+behave distinctly (flat and low vs. arcing), and a base hit topples a tall stack. Playtested
+green with two players; user's assessment at close was "in good shape for the first pass."
+Trench arena sizing, fixed weapon emplacements with turn-start selection, and a three-mode
+camera were scoped out to a new inserted pass (session 003) rather than folded in here.
 
 ### Pass 3 — Win/loss + full match
 `PrincessMonitor` (both kill paths), RESOLVE scoring, SWAP, the round loop, best-of-4,
