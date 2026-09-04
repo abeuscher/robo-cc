@@ -1,30 +1,100 @@
--- Over-the-shoulder camera for the Attacker during ATTACK, locked to a short,
--- fixed distance behind the character (not the scroll wheel) -- true first
--- person (0 studs) was too tight to see by, this backs off just enough. The
--- Builder keeps the normal camera. Released back to the player's own zoom
--- range whenever the local player isn't the ATTACK-phase Attacker.
+-- Three selectable views for the Attacker during ATTACK, cycled with C:
+-- top-down (default, engaged as soon as the Attacker's turn begins),
+-- first-person (LockFirstPerson -- proven in session 002), and a 45-degree
+-- side view looking down the trench. The Builder keeps the normal camera.
+-- Released back to Custom/Classic whenever the local player isn't the
+-- ATTACK-phase Attacker.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Config = require(ReplicatedStorage.Shared.Config)
 
 local player = Players.LocalPlayer
 
 local AttackCamera = {}
 
-local ZOOM_DISTANCE = 8 -- studs behind the character; min == max locks the scroll wheel out
+local MODES = { "TopDown", "FirstPerson", "Side45" }
+
+-- World-space framing for the two scripted modes, derived from the trench
+-- geometry (not hardcoded) so they stay centred if Config changes. Both look
+-- toward the wall rather than straight down/across, which keeps CFrame.lookAt
+-- well away from the straight-down singularity.
+local FIRING_Z = -(Config.GapWidth / 2)
+local WALL_Z = Config.BuildZoneOrigin.Z
+local ARENA_MID_Z = (FIRING_Z + WALL_Z) / 2
+
+local TOP_DOWN_HEIGHT = 45
+local TOP_DOWN_CFRAME = CFrame.lookAt(
+	Vector3.new(0, Config.GroundLevel + TOP_DOWN_HEIGHT, ARENA_MID_Z),
+	Vector3.new(0, Config.GroundLevel, WALL_Z)
+)
+
+-- Clear of the boundary wall (session 003's later addition) both sideways and
+-- vertically, so the view looks down over it rather than into its face.
+local SIDE_OFFSET_X = Config.PlatformSize.X / 2 + Config.BoundaryWallThickness + 20
+local SIDE_HEIGHT = Config.BoundaryWallHeight + 20
+local SIDE_45_CFRAME = CFrame.lookAt(
+	Vector3.new(SIDE_OFFSET_X, Config.GroundLevel + SIDE_HEIGHT, ARENA_MID_Z),
+	Vector3.new(0, Config.GroundLevel, ARENA_MID_Z)
+)
 
 local active = false
-local savedMinZoom, savedMaxZoom
+local modeIndex = 1
+local renderConn, inputConn
+
+local function applyMode()
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	local mode = MODES[modeIndex]
+	if mode == "FirstPerson" then
+		camera.CameraType = Enum.CameraType.Custom
+		player.CameraMode = Enum.CameraMode.LockFirstPerson
+	elseif mode == "TopDown" then
+		player.CameraMode = Enum.CameraMode.Classic
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CFrame = TOP_DOWN_CFRAME
+	else
+		player.CameraMode = Enum.CameraMode.Classic
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CFrame = SIDE_45_CFRAME
+	end
+end
+
+-- The scripted modes set the camera CFrame once, but Scriptable CFrames can
+-- get reset (character respawn, focus changes) -- reapply every frame rather
+-- than trust it to stick. FirstPerson is Roblox's own follow camera, so it
+-- needs no reapplication.
+local function onRender()
+	if MODES[modeIndex] ~= "FirstPerson" then
+		applyMode()
+	end
+end
+
+local function onInput(inputObject, gameProcessed)
+	if gameProcessed then
+		return
+	end
+	if inputObject.KeyCode == Enum.KeyCode.C then
+		modeIndex = modeIndex % #MODES + 1
+		applyMode()
+	end
+end
 
 local function enter()
 	if active then
 		return
 	end
 	active = true
-	savedMinZoom = player.CameraMinZoomDistance
-	savedMaxZoom = player.CameraMaxZoomDistance
-	player.CameraMode = Enum.CameraMode.Classic
-	player.CameraMinZoomDistance = ZOOM_DISTANCE
-	player.CameraMaxZoomDistance = ZOOM_DISTANCE
+	modeIndex = 1
+	applyMode()
+	renderConn = RunService.RenderStepped:Connect(onRender)
+	inputConn = UserInputService.InputBegan:Connect(onInput)
 end
 
 local function exit()
@@ -32,12 +102,19 @@ local function exit()
 		return
 	end
 	active = false
-	if savedMinZoom then
-		player.CameraMinZoomDistance = savedMinZoom
+	if renderConn then
+		renderConn:Disconnect()
+		renderConn = nil
 	end
-	if savedMaxZoom then
-		player.CameraMaxZoomDistance = savedMaxZoom
+	if inputConn then
+		inputConn:Disconnect()
+		inputConn = nil
 	end
+	local camera = Workspace.CurrentCamera
+	if camera then
+		camera.CameraType = Enum.CameraType.Custom
+	end
+	player.CameraMode = Enum.CameraMode.Classic
 end
 
 -- Nothing to prime up front; update() owns the transitions.

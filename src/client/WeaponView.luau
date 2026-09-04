@@ -12,16 +12,21 @@ local WeaponView = {}
 
 local WOOD = Color3.fromRGB(94, 66, 41)
 local IRON = Color3.fromRGB(70, 74, 82)
--- Sat on the firing pad, a stud in front of where the Attacker stands. +Z is
--- downrange, toward the wall.
-local BASE = CFrame.new(0, Config.GroundLevel + 0.5, -(Config.GapWidth / 2) - 1)
+-- Two fixed emplacements on the firing pad, a stud in front of where the
+-- Attacker stands, offset either side of centre to match Config.muzzleOrigin.
+-- +Z is downrange, toward the wall.
+local BASE_Z = -(Config.GapWidth / 2) - 1
+local BASE = {
+	Ballista = CFrame.new(-Config.MuzzleOffsetX, Config.GroundLevel + 0.5, BASE_Z),
+	Catapult = CFrame.new(Config.MuzzleOffsetX, Config.GroundLevel + 0.5, BASE_Z),
+}
 
 local folder
 local models = {}
 local visible = false
 local current = "Ballista"
 
-local function piece(model, size, offset, color)
+local function piece(model, size, offset, color, base)
 	local p = Instance.new("Part")
 	p.Anchored = true
 	p.CanCollide = false
@@ -29,7 +34,7 @@ local function piece(model, size, offset, color)
 	p.CastShadow = false
 	p.Material = Enum.Material.Wood
 	p.Size = size
-	p.CFrame = BASE * offset
+	p.CFrame = base * offset
 	p.Color = color
 	p.Parent = model
 	return p
@@ -38,10 +43,11 @@ end
 local function buildBallista()
 	local model = Instance.new("Model")
 	model.Name = "BallistaView"
-	piece(model, Vector3.new(1.4, 0.5, 4), CFrame.new(0, 0, 0), WOOD) -- stock
-	piece(model, Vector3.new(5, 0.35, 0.35), CFrame.new(0, 0.3, 1.4), WOOD) -- bow limbs
-	piece(model, Vector3.new(0.2, 0.2, 3.2), CFrame.new(0, 0.35, 0.2), IRON) -- rail / bolt
-	piece(model, Vector3.new(2, 1.1, 0.4), CFrame.new(0, -0.1, -1.6) * CFrame.Angles(math.rad(20), 0, 0), WOOD) -- rear brace
+	local base = BASE.Ballista
+	piece(model, Vector3.new(1.4, 0.5, 4), CFrame.new(0, 0, 0), WOOD, base) -- stock
+	piece(model, Vector3.new(5, 0.35, 0.35), CFrame.new(0, 0.3, 1.4), WOOD, base) -- bow limbs
+	piece(model, Vector3.new(0.2, 0.2, 3.2), CFrame.new(0, 0.35, 0.2), IRON, base) -- rail / bolt
+	piece(model, Vector3.new(2, 1.1, 0.4), CFrame.new(0, -0.1, -1.6) * CFrame.Angles(math.rad(20), 0, 0), WOOD, base) -- rear brace
 	model.Parent = folder
 	return model
 end
@@ -49,11 +55,12 @@ end
 local function buildCatapult()
 	local model = Instance.new("Model")
 	model.Name = "CatapultView"
-	piece(model, Vector3.new(2.6, 0.5, 3.4), CFrame.new(0, 0, 0), WOOD) -- frame
-	piece(model, Vector3.new(0.4, 2, 0.4), CFrame.new(-0.9, 1, 0.2), WOOD) -- left post
-	piece(model, Vector3.new(0.4, 2, 0.4), CFrame.new(0.9, 1, 0.2), WOOD) -- right post
-	piece(model, Vector3.new(0.4, 0.4, 4), CFrame.new(0, 1.4, 0.1) * CFrame.Angles(math.rad(-35), 0, 0), WOOD) -- throwing arm
-	local bucket = piece(model, Vector3.new(1, 0.8, 1), CFrame.new(0, 2.4, 1.8), IRON) -- bucket
+	local base = BASE.Catapult
+	piece(model, Vector3.new(2.6, 0.5, 3.4), CFrame.new(0, 0, 0), WOOD, base) -- frame
+	piece(model, Vector3.new(0.4, 2, 0.4), CFrame.new(-0.9, 1, 0.2), WOOD, base) -- left post
+	piece(model, Vector3.new(0.4, 2, 0.4), CFrame.new(0.9, 1, 0.2), WOOD, base) -- right post
+	piece(model, Vector3.new(0.4, 0.4, 4), CFrame.new(0, 1.4, 0.1) * CFrame.Angles(math.rad(-35), 0, 0), WOOD, base) -- throwing arm
+	local bucket = piece(model, Vector3.new(1, 0.8, 1), CFrame.new(0, 2.4, 1.8), IRON, base) -- bucket
 	bucket.Material = Enum.Material.Metal
 	model.Parent = folder
 	return model

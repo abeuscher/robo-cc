@@ -24,7 +24,6 @@ local WeaponManager = {}
 
 local PROJECTILE_SIZE = Vector3.new(1.3, 1.3, 1.3)
 local PROJECTILE_COLOR = Color3.fromRGB(255, 170, 80)
-local MUZZLE_ORIGIN = Vector3.new(0, Config.GroundLevel + Config.MuzzleHeight, -(Config.GapWidth / 2))
 
 -- [proj] = true. proj = { part, velocity, gravityScale, weapon, elapsed, params }
 local active = {}
@@ -41,9 +40,11 @@ local function projectilesFolder()
 	return folder
 end
 
--- Raycast filter: only blocks and the Princess matter this session. A standing
--- block in the lane is hit before the Princess, which is how the ballista
--- "cannot arc over". Anything else (platforms, markers) is ignored.
+-- Raycast filter: blocks, the Princess, and the arena boundary (ground +
+-- perimeter walls) -- a standing block in the lane is hit before the Princess,
+-- which is how the ballista "cannot arc over"; the boundary just catches a
+-- miss instead of letting it fly until ProjectileLifetime. Markers are
+-- ignored.
 local function hitParams()
 	local root = Arena.root()
 	local include = {}
@@ -55,13 +56,17 @@ local function hitParams()
 	if princess then
 		table.insert(include, princess)
 	end
+	local boundary = root:FindFirstChild("Boundary")
+	if boundary then
+		table.insert(include, boundary)
+	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = include
 	return params
 end
 
-local function makeProjectile()
+local function makeProjectile(origin)
 	local part = Instance.new("Part")
 	part.Name = "Projectile"
 	part.Shape = Enum.PartType.Ball
@@ -72,7 +77,7 @@ local function makeProjectile()
 	part.CanCollide = false
 	part.CanQuery = false
 	part.CastShadow = false
-	part.Position = MUZZLE_ORIGIN
+	part.Position = origin
 
 	local a0 = Instance.new("Attachment")
 	a0.Position = Vector3.new(0, 0.45, 0)
@@ -164,7 +169,7 @@ end
 -- shot.
 function WeaponManager.fire(weapon, direction, force, angle)
 	local proj = {
-		part = makeProjectile(),
+		part = makeProjectile(Config.muzzleOrigin(weapon)),
 		velocity = launchVelocity(weapon, direction, force, angle),
 		gravityScale = if weapon == "Ballista" then Config.BallistaGravityScale else 1,
 		weapon = weapon,

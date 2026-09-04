@@ -81,10 +81,13 @@ not pipeline from reading straight into implementation.
 
 ## Session Close Gate
 
-Everything below happens only when the user explicitly says to close (via `/close-session`).
+The next session's brief should already be drafted from `sessions/TEMPLATE-session-brief.md`
+before `/close-session` is run — that command's own precondition checks for it and stops if
+it's missing, rather than drafting it itself. Everything below happens only when the user
+explicitly runs `/close-session`:
 
 1. Write this session's log at `sessions/NNN. <Title> — Log.md` from
    `sessions/TEMPLATE-session-log.md` — copy its structure exactly.
 2. Update `roadmap.md` if the pass's scope shifted; mark the pass done.
-3. Draft the next session's brief from `sessions/TEMPLATE-session-brief.md`.
+3. Confirm the next session's brief exists.
 4. Commit on the `session-NNN` branch. Never push, never merge to main.

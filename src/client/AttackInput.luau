@@ -31,8 +31,6 @@ local player = Players.LocalPlayer
 
 local AttackInput = {}
 
-local MUZZLE_ORIGIN = Vector3.new(0, Config.GroundLevel + Config.MuzzleHeight, -(Config.GapWidth / 2))
-
 -- Q/E increment. UI feel, not gameplay balance, so it lives here rather than
 -- in Config.
 local ANGLE_STEP = 5
@@ -324,7 +322,7 @@ end
 -- no camera yet.
 local function currentAimDirection()
 	local target = if state.weapon == "Catapult" then catapultAimPoint() else aimPoint()
-	return target and (target - MUZZLE_ORIGIN) or nil
+	return target and (target - Config.muzzleOrigin(state.weapon)) or nil
 end
 
 -- Ballista: BallistaGravityScale is tiny enough that the flight is effectively
@@ -336,15 +334,15 @@ end
 -- hit point could only land on one of a handful of points along the wall.)
 -- The dashed line is just evenly spaced points along the resolved segment,
 -- purely cosmetic.
-local function straightTrace(direction)
+local function straightTrace(origin, direction)
 	local flat = Vector3.new(direction.X, 0, direction.Z)
 	local heading = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zAxis
-	local far = MUZZLE_ORIGIN + heading * TRACE_RANGE
-	local hit = Workspace:Raycast(MUZZLE_ORIGIN, far - MUZZLE_ORIGIN, traceParams())
+	local far = origin + heading * TRACE_RANGE
+	local hit = Workspace:Raycast(origin, far - origin, traceParams())
 	local endPoint = hit and hit.Position or far
 	local points = {}
 	for i = 0, DASH_SEGMENTS do
-		table.insert(points, MUZZLE_ORIGIN:Lerp(endPoint, i / DASH_SEGMENTS))
+		table.insert(points, origin:Lerp(endPoint, i / DASH_SEGMENTS))
 	end
 	return points, endPoint, hit and hit.Instance or nil
 end
@@ -364,12 +362,12 @@ end
 -- integrator, raycasting each step. Returns the traced points (for the dashed
 -- line) plus where the shot would land and what it would hit (nil if the trace
 -- runs out within TRACE_RANGE without a hit).
-local function arcTrace(direction, force, angleDeg)
+local function arcTrace(origin, direction, force, angleDeg)
 	local velocity = catapultVelocity(direction, force, angleDeg)
 	local gravity = Workspace.Gravity
 	local params = traceParams()
-	local points = { MUZZLE_ORIGIN }
-	local pos = MUZZLE_ORIGIN
+	local points = { origin }
+	local pos = origin
 	for _ = 1, TRACE_MAX_STEPS do
 		velocity -= Vector3.yAxis * gravity * TRACE_DT
 		local nextPos = pos + velocity * TRACE_DT
@@ -380,7 +378,7 @@ local function arcTrace(direction, force, angleDeg)
 		end
 		pos = nextPos
 		table.insert(points, pos)
-		if pos.Y <= Config.GroundLevel or (pos - MUZZLE_ORIGIN).Magnitude > TRACE_RANGE then
+		if pos.Y <= Config.GroundLevel or (pos - origin).Magnitude > TRACE_RANGE then
 			break
 		end
 	end
@@ -388,10 +386,11 @@ local function arcTrace(direction, force, angleDeg)
 end
 
 local function traceShot(weapon, direction, force, angleDeg)
+	local origin = Config.muzzleOrigin(weapon)
 	if weapon == "Ballista" then
-		return straightTrace(direction)
+		return straightTrace(origin, direction)
 	end
-	return arcTrace(direction, force, angleDeg)
+	return arcTrace(origin, direction, force, angleDeg)
 end
 
 -- Traces a shot and updates the crosshair + dashed line from the result.

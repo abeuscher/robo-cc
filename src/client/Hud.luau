@@ -109,7 +109,7 @@ local function render()
 	local hintForAttacker = inAttack and myRole == "Attacker"
 	hintLabel.Visible = hintForBuilder or hintForAttacker
 	if hintForAttacker then
-		hintLabel.Text = "mouse aim · Q/E angle (catapult) · F weapon · click, click at meter target to launch"
+		hintLabel.Text = "mouse aim · Q/E angle (catapult) · F weapon · C camera · click, click at meter target to launch"
 	else
 		hintLabel.Text = "click pile to lift · click cell to place · R rotate · Q drop · click a wall block to return it"
 	end

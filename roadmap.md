@@ -56,10 +56,14 @@ Rule: `src/shared` never requires anything from `src/server` or `src/client`.
 - **`MatchController.luau`** — the state machine. Waits for 2 players, assigns roles by join
   order, runs the round loop, owns the score, broadcasts state. Everything else is a service
   it calls.
-- **`Arena.luau`** — builds arena geometry from `Config` (Builder platform + marked build
-  zone, Attacker firing position across the gap, at matched elevation). Spawns the Princess
-  at `Config.PrincessDistance` behind the build zone. `reset()` destroys everything under a
-  `Workspace.ActiveRound` folder so each round starts clean.
+- **`Arena.luau`** — builds arena geometry from `Config`: one flat ground spanning the whole
+  play area (session 003; a single elevation, per spec's "roughly the same ground
+  elevation"), ringed by perimeter boundary walls, a marked build zone, and two fixed
+  weapon-emplacement markers across the gap. Spawns the Princess at `Config.PrincessDistance`
+  behind the build zone. `reset()` destroys everything under a `Workspace.ActiveRound` folder
+  so each round starts clean -- **not yet round-safe as of session 003**: `build()` still does
+  the static geometry and the Princess in one pass, called once at server start; session 004
+  needs to split what actually resets each round from what's built once.
 - **`BlockManager.luau`** — spawns the 12 blocks as plain anchored `Part`s with
   `PhysicalProperties` from `Config`, tracks them, and at ATTACK start unanchors each one and
   calls `SetNetworkOwner(nil)`. No welds — separate assemblies resting under gravity.
@@ -68,9 +72,12 @@ Rule: `src/shared` never requires anything from `src/server` or `src/client`.
   where blocks actually are.
 - **`WeaponManager.luau`** — handles `FireWeapon`. Spawns a server-owned projectile and steps
   it on `Heartbeat` with a raycast from last position to new position (no `Touched` reliance —
-  the ballista is fast enough to tunnel). Ballista: near-flat, `gravityScale` tiny, stopped
-  by any standing block. Catapult: initial velocity from force + angle, full gravity, applies
-  an impulse to blocks it strikes.
+  the ballista is fast enough to tunnel), filtered to blocks, the Princess, and (session 003)
+  the arena boundary, so a miss stops instead of flying until `ProjectileLifetime`. Ballista:
+  near-flat, `gravityScale` tiny, stopped by any standing block. Catapult: initial velocity
+  from force + angle, full gravity, applies an impulse to blocks it strikes. Each weapon fires
+  from its own fixed emplacement (`Config.muzzleOrigin(weapon)`, session 003) rather than a
+  single shared point.
 - **`PrincessMonitor.luau`** — declares the Princess dead on (a) a projectile raycast hit or
   (b) `Touched` by a part tagged as a block whose `AssemblyLinearVelocity.Magnitude >
   Config.MovingBlockKillSpeed`. A block from the Builder's own wall counts — no owner check.
@@ -226,13 +233,38 @@ green with two players; user's assessment at close was "in good shape for the fi
 Trench arena sizing, fixed weapon emplacements with turn-start selection, and a three-mode
 camera were scoped out to a new inserted pass (session 003) rather than folded in here.
 
-### Pass 3 — Win/loss + full match
+### Pass 3 — Trench Arena & Targeting — **done (session 003)**
+Reworked the ATTACK-phase arena into a trench sized off the block totals (build-zone opening
+30 studs wide × 15 studs tall — total cumulative block width ÷ 2, and every block stacked in
+one column), two fixed weapon emplacements with a shared `Config.muzzleOrigin(weapon)` formula,
+and a three-mode attack camera (top-down default, first-person, 45°-down side, cycled with `C`).
+The brief's "weapon choice locks for the turn" recommendation was overridden at the Open Gate —
+`F` still freely toggles mid-turn, unchanged from session 002, just now aimed at two fixed spots
+instead of one; no turn-start selection UI was built as a result.
+Scope shifted during the session, from playtest feedback: the two platforms floated over
+nothing but Studio's default Baseplate with an open gap between them, reading as a flat floor
+rather than a trench, and — a related physics gap, not just visual — a missed shot's raycast
+never included anything but blocks and the Princess, so it flew until `ProjectileLifetime`
+instead of hitting something. Fixed with one continuous flat green ground spanning the whole
+play area (kept flat, not a sunken pit, per spec's "roughly the same ground elevation") ringed
+by perimeter boundary walls, both added to `WeaponManager`'s raycast filter. A second playtest
+pass then caught the 45°-side camera clipping into that new wall (its framing predated it);
+repositioned clear of it.
+**Done:** all three camera modes read correctly, both weapons aim and fire correctly from their
+own emplacement across every camera mode, and a missed shot now stops at the ground or a wall.
+Playtested green after two rounds of fixes; user's final assessment was "everything is working
+about right."
+
+### Pass 4 — Win/loss + full match
 `PrincessMonitor` (both kill paths), RESOLVE scoring, SWAP, the round loop, best-of-4,
-`MatchResult`, arena reset between rounds.
+`MatchResult`, arena reset between rounds. Also needs an arena build/reset split (session 003
+carry-forward): `Arena.build()` still does static geometry and the Princess in one pass, called
+once at server start, and isn't yet safe to call again mid-match without destroying the ground
+and boundary walls along with the blocks and Princess.
 **Done when:** the spec's Definition of Done passes start to finish with two players and no
 outside instruction.
 
-### Pass 4 — Tune, then launch
+### Pass 5 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 

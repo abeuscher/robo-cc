@@ -1,7 +1,8 @@
--- Static arena geometry, built from Config into Workspace.ActiveRound. Plain
--- grey parts, marker parts a muted blue. reset() empties the folder; build()
--- fills it. This session calls build() once at server start; the per-round
--- reset loop comes later.
+-- Static arena geometry, built from Config into Workspace.ActiveRound: one
+-- flat green ground spanning the whole play area (attacker side, the gap,
+-- builder side) ringed by grey boundary walls, marker parts a muted blue.
+-- reset() empties the folder; build() fills it. This session calls build()
+-- once at server start; the per-round reset loop comes later.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -10,6 +11,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 
 local FOLDER_NAME = "ActiveRound"
 local STONE = Color3.fromRGB(128, 128, 128)
+local GRASS = Color3.fromRGB(76, 153, 51)
 local MARK = Color3.fromRGB(90, 110, 140)
 
 local Arena = {}
@@ -43,8 +45,8 @@ function Arena.reset()
 end
 
 -- The baseplate template drops a SpawnLocation at the world origin, which lands
--- right in the gap between the platforms. Remove any that aren't ours and add a
--- single invisible, non-colliding spawn on the builder platform -- MatchController
+-- right in the middle of the ground. Remove any that aren't ours and add a
+-- single invisible, non-colliding spawn on the builder's side -- MatchController
 -- repositions characters onto their marks either way.
 local function resetSpawns(root)
 	for _, inst in Workspace:GetDescendants() do
@@ -71,21 +73,50 @@ function Arena.build()
 
 	local platformY = Config.GroundLevel - Config.PlatformSize.Y / 2
 	local halfGap = Config.GapWidth / 2
-	local halfDepth = Config.PlatformSize.Z / 2
+
+	-- One continuous flat ground: attacker side, the gap, and builder side all
+	-- at the same elevation (spec: "roughly the same ground elevation"), ringed
+	-- by walls so a missed shot hits something. Both folded into a Boundary
+	-- folder that WeaponManager includes in its projectile raycast filter.
+	local boundary = Instance.new("Folder")
+	boundary.Name = "Boundary"
+	boundary.Parent = root
+
+	local groundHalfX = Config.PlatformSize.X / 2
+	local groundMinZ = -(halfGap + Config.PlatformSize.Z)
+	local groundMaxZ = halfGap + Config.PlatformSize.Z
+	local groundSize = Vector3.new(Config.PlatformSize.X, Config.PlatformSize.Y, groundMaxZ - groundMinZ)
+
+	part("Ground", groundSize, Vector3.new(0, platformY, (groundMinZ + groundMaxZ) / 2), GRASS).Parent = boundary
+
+	local wallHeight = Config.BoundaryWallHeight
+	local wallThickness = Config.BoundaryWallThickness
+	local wallY = Config.GroundLevel + wallHeight / 2
 
 	part(
-		"BuilderPlatform",
-		Config.PlatformSize,
-		Vector3.new(0, platformY, halfGap + halfDepth),
+		"WallNear",
+		Vector3.new(groundSize.X + wallThickness * 2, wallHeight, wallThickness),
+		Vector3.new(0, wallY, groundMinZ - wallThickness / 2),
 		STONE
-	).Parent = root
-
+	).Parent = boundary
 	part(
-		"AttackerPlatform",
-		Config.PlatformSize,
-		Vector3.new(0, platformY, -(halfGap + halfDepth)),
+		"WallFar",
+		Vector3.new(groundSize.X + wallThickness * 2, wallHeight, wallThickness),
+		Vector3.new(0, wallY, groundMaxZ + wallThickness / 2),
 		STONE
-	).Parent = root
+	).Parent = boundary
+	part(
+		"WallLeft",
+		Vector3.new(wallThickness, wallHeight, groundSize.Z + wallThickness * 2),
+		Vector3.new(-groundHalfX - wallThickness / 2, wallY, 0),
+		STONE
+	).Parent = boundary
+	part(
+		"WallRight",
+		Vector3.new(wallThickness, wallHeight, groundSize.Z + wallThickness * 2),
+		Vector3.new(groundHalfX + wallThickness / 2, wallY, 0),
+		STONE
+	).Parent = boundary
 
 	part(
 		"BuildZone",
@@ -95,13 +126,16 @@ function Arena.build()
 		0.35
 	).Parent = root
 
-	part(
-		"FiringPosition",
-		Vector3.new(6, 0.1, 6),
-		Vector3.new(0, Config.GroundLevel + 0.05, -(halfGap + 2)),
-		MARK,
-		0.35
-	).Parent = root
+	for _, weapon in { "Ballista", "Catapult" } do
+		local sign = if weapon == "Ballista" then -1 else 1
+		part(
+			weapon .. "FiringPosition",
+			Vector3.new(4, 0.1, 4),
+			Vector3.new(sign * Config.MuzzleOffsetX, Config.GroundLevel + 0.05, -(halfGap + 2)),
+			MARK,
+			0.35
+		).Parent = root
+	end
 
 	for _, typeDef in Config.BlockTypes do
 		part(
