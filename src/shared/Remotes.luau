@@ -7,6 +7,10 @@ local RunService = game:GetService("RunService")
 local FOLDER_NAME = "Remotes"
 local EVENT_NAMES = {
 	"StartRequested",
+	"PlaceBlock",
+	"PickupBlock",
+	"ConfirmBuild",
+	"StateChanged",
 }
 
 local folder

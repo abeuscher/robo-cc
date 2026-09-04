@@ -1,9 +1,11 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Arena = require(script.Arena)
+local BlockManager = require(script.BlockManager)
+local BuildManager = require(script.BuildManager)
+local MatchController = require(script.MatchController)
 
-local Remotes = require(ReplicatedStorage.Shared.Remotes)
+Arena.build()
+BlockManager.spawnAll()
+MatchController.start()
+BuildManager.start()
 
-Remotes.StartRequested.OnServerEvent:Connect(function(player)
-	print(string.format("[server] StartRequested from %s (%d)", player.Name, player.UserId))
-end)
-
-print("[server] Siege prototype booted, waiting for Start")
+print("[server] Siege prototype booted")

@@ -176,17 +176,24 @@ broadcast(MatchResult{ winner = argmax(score), score = score })
 
 Each pass ends with something you sync and playtest (Test tab → 2 players → Start).
 
-### Pass 0 — Skeleton (small, folded into Pass 1 if quick)
-`Config`, `Remotes`, `Types`, folder layout, bootstrappers replacing the Hello-world
-scripts. `Arena.build()` draws the static geometry. Playtest check: geometry appears, no
-errors in Output.
+### Pass 0 — Skeleton — **done (session 001)**
+`Config`, `Remotes`, `Types`, `GridUtil`, folder layout, bootstrappers replacing the
+Hello-world scripts. `Arena.build()` draws the static geometry. Folded into session 001.
 
-### Pass 1 — BUILD phase, end to end
-Arena + Princess, role assignment + banner, grid ghost, place / pickup / re-place, Confirm
-button, blocks-remaining HUD. Blocks stay anchored. State machine advances to ATTACK and
-holds.
-**Done when:** the Builder places 12 blocks, re-arranges some, confirms, and the HUD shows
-the phase change.
+### Pass 1 — BUILD phase, end to end — **done (session 001)**
+Arena + Princess, role assignment + banner, Confirm button, HUD. State machine advances to
+ATTACK and holds. Blocks stay anchored.
+Scope shifted during the session: instead of 12 identical blocks spawned on click, the
+grid became a **vertical build plane** and blocks became a **typed, pre-spawned inventory**
+— 6 Standard (`2.5×1.25×2.5`) and 6 Wide (`7.5×1.25×2.5`, rotatable, 3× mass at equal
+density) sitting in two piles on the builder's right. The Builder lifts a block from its
+pile (it hides locally while held), places it on the plane with multi-cell footprint and
+`R`-rotation, and clicks a placed block to send it home. `PlaceBlock` now carries
+`{ blockId, cell, rotated }`; `StateChanged.blocksRemaining` is `{ Standard, Wide }`. A
+short camera intro (overhead → tween to play cam on Start) was added. Structural
+placement rules were explicitly deferred (see below).
+**Done:** Builder builds a wall from both block types, rotates and rearranges, confirms;
+HUD shows the phase change. Playtested green with two players.
 
 ### Pass 2 — ATTACK phase + physics
 `releaseAll()`, both weapons, projectile stepping + raycast hits, mouse/wheel/`Q`/`E`/`F`
@@ -204,6 +211,15 @@ outside instruction.
 ### Pass 4 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
+
+### Deferred — structural placement rules (not yet scheduled)
+BUILD currently lets the Builder drop a block into any free, in-bounds cell, including
+mid-air. A later pass should add structural constraints: a block must rest on the platform
+or on a block directly below it (no floating), and likely a support/balance check so a
+block can't sit with nothing under its footprint. Open question whether this is enforced at
+placement time (`BuildManager` rejects the `PlaceBlock`) or left to physics at ATTACK start
+(let it float, then fall when `releaseAll()` runs). Stays inside the grid model — it's a
+validation layer on `BuildManager`, not a new mechanic.
 
 ---
 
