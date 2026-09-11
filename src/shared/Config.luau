@@ -91,6 +91,7 @@ local Config = {
 	-- Match
 	ShotsPerTurn = 6,
 	RoundsPerMatch = 4,
+	ResolveSettleTime = 1.5, -- seconds to let physics settle after the last shot/kill before deciding the round
 
 	-- Physics thresholds
 	MovingBlockKillSpeed = 10, -- a block slower than this can't kill the Princess

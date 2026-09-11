@@ -114,10 +114,18 @@ local function onConfirmBuild(player)
 	MatchController.confirmBuild(player)
 end
 
+-- Blocks get fresh, reused ids each round (BlockManager.spawnAll() resets its
+-- own counter), so stale cell->blockId entries from the previous round would
+-- otherwise misjudge occupancy. Registered as a round-reset hook.
+function BuildManager.resetOccupancy()
+	occupancy = {}
+end
+
 function BuildManager.start()
 	Remotes.PlaceBlock.OnServerEvent:Connect(onPlaceBlock)
 	Remotes.PickupBlock.OnServerEvent:Connect(onPickupBlock)
 	Remotes.ConfirmBuild.OnServerEvent:Connect(onConfirmBuild)
+	MatchController.onRoundReset(BuildManager.resetOccupancy)
 end
 
 return BuildManager

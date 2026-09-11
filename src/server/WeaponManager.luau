@@ -19,6 +19,7 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local Arena = require(script.Parent.Arena)
 local MatchController = require(script.Parent.MatchController)
+local PrincessMonitor = require(script.Parent.PrincessMonitor)
 
 local WeaponManager = {}
 
@@ -129,20 +130,30 @@ end
 
 -- First hit along the step. A struck block takes an impulse along the
 -- projectile's travel direction, scaled by the weapon's impact constant and the
--- block's mass so heavier (Wide) blocks get the same shove. The Princess is
--- inert this session -- the projectile just despawns on her.
+-- block's mass so heavier (Wide) blocks get the same shove. A hit on the
+-- Princess herself is the spec's "direct hit" kill path.
 local function onHit(proj, result)
 	local part = result.Instance
 	if part:GetAttribute("BlockId") then
 		local impact = if proj.weapon == "Ballista" then Config.BallistaImpact else Config.CatapultImpact
 		local dir = proj.velocity.Magnitude > 0 and proj.velocity.Unit or Vector3.zAxis
 		part:ApplyImpulse(dir * impact * part.AssemblyMass)
+	elseif part.Name == "Princess" then
+		PrincessMonitor.reportDirectHit()
 	end
 end
 
 local function despawn(proj)
 	proj.part:Destroy()
 	active[proj] = nil
+end
+
+-- Despawns every in-flight projectile. Registered with MatchController as a
+-- round-reset hook so nothing carries into the next round.
+function WeaponManager.clearAll()
+	for proj in active do
+		despawn(proj)
+	end
 end
 
 local function step(dt)
@@ -206,6 +217,7 @@ end
 function WeaponManager.start()
 	Remotes.FireWeapon.OnServerEvent:Connect(onFireWeapon)
 	RunService.Heartbeat:Connect(step)
+	MatchController.onRoundReset(WeaponManager.clearAll)
 end
 
 return WeaponManager

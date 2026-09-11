@@ -12,6 +12,8 @@ local EVENT_NAMES = {
 	"ConfirmBuild",
 	"FireWeapon",
 	"StateChanged",
+	"RoundResult",
+	"MatchResult",
 }
 
 local folder

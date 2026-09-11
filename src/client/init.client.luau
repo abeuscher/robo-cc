@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 local TitleScreen = require(script:WaitForChild("TitleScreen"))
 local Hud = require(script:WaitForChild("Hud"))
+local ResultBanner = require(script:WaitForChild("ResultBanner"))
 local BuildInput = require(script:WaitForChild("BuildInput"))
 local AttackInput = require(script:WaitForChild("AttackInput"))
 local AttackCamera = require(script:WaitForChild("AttackCamera"))
@@ -15,6 +16,7 @@ Remotes.StateChanged.OnClientEvent:Connect(function(state)
 	latestState = state
 	if live then
 		Hud.update(state)
+		ResultBanner.update(state)
 		BuildInput.update(state)
 		AttackInput.update(state)
 		AttackCamera.update(state)
@@ -28,12 +30,14 @@ local function begin()
 	live = true
 
 	Hud.start()
+	ResultBanner.start()
 	BuildInput.start()
 	AttackInput.start()
 	AttackCamera.start()
 
 	if latestState then
 		Hud.update(latestState)
+		ResultBanner.update(latestState)
 		BuildInput.update(latestState)
 		AttackInput.update(latestState)
 		AttackCamera.update(latestState)

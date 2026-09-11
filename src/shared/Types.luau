@@ -32,12 +32,25 @@ export type BlocksRemaining = {
 	Wide: number,
 }
 
+export type Score = { [number]: number } -- UserId -> rounds won
+
 export type StatePayload = {
 	phase: Phase,
 	roles: Roles?,
 	blocksRemaining: BlocksRemaining,
 	shotsRemaining: number,
 	round: number,
+	score: Score,
+}
+
+export type RoundResult = {
+	winner: Role,
+	reason: "survived" | "direct" | "crushed",
+}
+
+export type MatchResult = {
+	winner: number?, -- UserId; nil on a tie
+	score: Score,
 }
 
 return {}

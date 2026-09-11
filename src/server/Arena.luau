@@ -1,8 +1,10 @@
 -- Static arena geometry, built from Config into Workspace.ActiveRound: one
 -- flat green ground spanning the whole play area (attacker side, the gap,
 -- builder side) ringed by grey boundary walls, marker parts a muted blue.
--- reset() empties the folder; build() fills it. This session calls build()
--- once at server start; the per-round reset loop comes later.
+-- reset() empties the folder; build() fills it -- called once at server start.
+-- resetRound() is the lighter per-round path: it only repositions the Princess,
+-- leaving the static geometry and the Blocks folder untouched (MatchController
+-- also runs BlockManager.spawnAll() and clears live projectiles each round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -158,6 +160,21 @@ function Arena.build()
 		STONE
 	).Parent = root
 
+	return root
+end
+
+-- Per-round reset: puts the Princess back at her fixed spawn point. She's
+-- anchored, so there's no velocity to clear -- just position.
+function Arena.resetRound()
+	local root = Arena.root()
+	local princess = root:FindFirstChild("Princess")
+	if princess then
+		princess.CFrame = CFrame.new(
+			0,
+			Config.GroundLevel + Config.PrincessSize.Y / 2,
+			Config.BuildZoneOrigin.Z + Config.PrincessDistance
+		)
+	end
 	return root
 end
 

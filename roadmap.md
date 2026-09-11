@@ -255,16 +255,35 @@ own emplacement across every camera mode, and a missed shot now stops at the gro
 Playtested green after two rounds of fixes; user's final assessment was "everything is working
 about right."
 
-### Pass 4 — Win/loss + full match
-`PrincessMonitor` (both kill paths), RESOLVE scoring, SWAP, the round loop, best-of-4,
-`MatchResult`, arena reset between rounds. Also needs an arena build/reset split (session 003
-carry-forward): `Arena.build()` still does static geometry and the Princess in one pass, called
-once at server start, and isn't yet safe to call again mid-match without destroying the ground
-and boundary walls along with the blocks and Princess.
-**Done when:** the spec's Definition of Done passes start to finish with two players and no
-outside instruction.
+### Pass 4 — Win/loss + full match — **done (session 004)**
+Added `PrincessMonitor` (direct projectile hit + moving-block contact, no owner check), the
+RESOLVE/SWAP round loop in `MatchController`, per-user score tracking across best-of-4, and
+`RoundResult`/`MatchResult` broadcasts. Split `Arena.build()` (static geometry, once) from a
+new `Arena.resetRound()` (Princess reposition only, per round) as the session 003 carry-forward
+required. Added `MatchController.onRoundReset(callback)` so `WeaponManager` (in-flight
+projectiles) and `BuildManager` (grid occupancy — a bug found mid-session: it was never reset
+between rounds and would have misjudged round 2's placements) can each clean up their own live
+state per round without `MatchController` requiring them back. `Hud` gained round/score
+readouts; a new `ResultBanner` shows the round and match outcome.
+**Done:** the spec's full Definition of Done runs start to finish with two players and no
+outside instruction. Playtested green across several full matches. User's assessment was
+correctness-positive but feel-negative: "it is working and it is not fun at all yet" — the
+uniform rectangular block roster makes BUILD rote. That fed directly into Pass 5, inserted
+below.
 
-### Pass 5 — Tune, then launch
+### Pass 5 — Irregular Blocks (L-Piece Pilot)
+Replaces the 6 Standard + 6 Wide rectangular roster with 12 identical L-shaped four-cell
+pieces (three in a row, one hanging off the bottom of one end), each a single `UnionOperation`
+so it moves as one rigid assembly. Generalizes the grid/placement pipeline from a rectangular
+footprint + 2-state flip to an arbitrary multi-cell shape + full 4-state rotation (`GridUtil`,
+`BuildManager`, `BlockManager`, `BuildInput`). No new placement-time support rule — the
+challenge is purely physical: an unsupported overhang has to survive
+`BlockManager.releaseAll()` unanchoring it at ATTACK start. A test of whether irregular block
+shapes make the BUILD phase more interesting; more shapes follow if it does.
+**Done when:** two players can build a wall from only L-pieces at any of the 4 rotations,
+confirm, and watch gravity judge the result exactly as it does today for rectangular blocks.
+
+### Pass 6 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 

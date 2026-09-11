@@ -2,15 +2,19 @@
 -- AttackInput.setAttackReadout for the live weapon + angle line. Shows
 -- blocks-remaining during BUILD and shots-remaining + weapon during ATTACK, with
 -- a per-phase controls hint and a "waiting for the other player" line until both
--- roles are filled.
+-- roles are filled. Round number and running score are always shown once roles
+-- are filled; the round-result / match-result banner itself is ResultBanner.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
 
 local player = Players.LocalPlayer
 
 local Hud = {}
 
-local gui, roleLabel, phaseLabel, blocksLabel, shotsLabel, weaponLabel, hintLabel, waitingLabel
+local gui, roleLabel, phaseLabel, roundLabel, scoreLabel, blocksLabel, shotsLabel, weaponLabel, hintLabel, waitingLabel
 
 local lastState = nil
 local readout = { weapon = "Ballista", angle = 0 }
@@ -38,7 +42,7 @@ function Hud.start()
 	gui.ResetOnSpawn = false
 
 	local container = Instance.new("Frame")
-	container.Size = UDim2.fromOffset(460, 210)
+	container.Size = UDim2.fromOffset(460, 260)
 	container.AnchorPoint = Vector2.new(1, 1)
 	container.Position = UDim2.new(1, -16, 1, -16)
 	container.BackgroundTransparency = 1
@@ -50,6 +54,8 @@ function Hud.start()
 
 	roleLabel = label(container, 28, Color3.fromRGB(238, 238, 238))
 	phaseLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
+	roundLabel = label(container, 18, Color3.fromRGB(200, 205, 215))
+	scoreLabel = label(container, 18, Color3.fromRGB(200, 205, 215))
 	blocksLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
 	shotsLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
 	weaponLabel = label(container, 18, Color3.fromRGB(255, 210, 120))
@@ -83,6 +89,17 @@ local function render()
 
 	roleLabel.Text = myRole and ("You are the " .. myRole) or "You are a spectator"
 	phaseLabel.Text = "Phase: " .. state.phase
+
+	roundLabel.Visible = state.roles ~= nil
+	roundLabel.Text = string.format("Round %d of %d", state.round or 1, Config.RoundsPerMatch)
+
+	scoreLabel.Visible = state.roles ~= nil
+	if state.roles then
+		local otherId = if state.roles.builder == player.UserId then state.roles.attacker else state.roles.builder
+		local myScore = (state.score and state.score[player.UserId]) or 0
+		local otherScore = (otherId and state.score and state.score[otherId]) or 0
+		scoreLabel.Text = string.format("Score  —  You: %d   Opponent: %d", myScore, otherScore)
+	end
 
 	local inBuild = state.phase == "BUILD"
 	local inAttack = state.phase == "ATTACK"
