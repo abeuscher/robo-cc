@@ -37,6 +37,11 @@ local BUILD_ZONE_SIZE = Vector2.new(TOTAL_BLOCK_WIDTH / 2, TOTAL_BLOCK_HEIGHT)
 
 local GAP_WIDTH = 40 -- firing distance across the trench; independently tuned, not block-derived
 
+-- Fixed, scripted shot order -- the Attacker no longer chooses a weapon
+-- (session 007, overrides spec's free choice). ShotsPerTurn derives from this
+-- so the two can never drift apart.
+local SHOT_SEQUENCE = { "Catapult", "Catapult", "Ballista" }
+
 -- No physical pile (session 006 -- pieces are issued one at a time, not
 -- pre-spawned into a stack) -- the platform just needs to cover the build
 -- zone with a little clearance.
@@ -87,7 +92,8 @@ local Config = {
 	CatapultImpact = 60, -- knockback scale applied to a struck block
 
 	-- Match
-	ShotsPerTurn = 6,
+	ShotSequence = SHOT_SEQUENCE, -- mandated weapon per shot, in order; no free choice (session 007)
+	ShotsPerTurn = #SHOT_SEQUENCE,
 	RoundsPerMatch = 4,
 	ResolveSettleTime = 1.5, -- seconds to let physics settle after the last shot/kill before deciding the round
 

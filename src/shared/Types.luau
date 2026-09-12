@@ -16,7 +16,6 @@ export type PlacePayload = {
 }
 
 export type ShotPayload = {
-	weapon: Weapon,
 	direction: Vector3,
 	force: number,
 	angle: number,
@@ -38,6 +37,7 @@ export type StatePayload = {
 	roles: Roles?,
 	blocksRemaining: BlocksRemaining,
 	shotsRemaining: number,
+	currentWeapon: Weapon?, -- mandated weapon for the shot about to fire; nil outside ATTACK
 	round: number,
 	score: Score,
 }

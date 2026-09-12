@@ -1,8 +1,10 @@
 -- Attacker-only aiming. Active while phase == "ATTACK" and the local player is
 -- the Attacker. Mouse sets aim direction from a fixed muzzle origin, Q/E adjust
--- the catapult angle, F toggles weapon. A crosshair marks the predicted impact
--- point (traced with the same integrator the server steps) and turns green when
--- that impact is a wall block; a light dashed line sketches the path to it.
+-- the catapult angle. Weapon is not a client choice -- state.weapon mirrors
+-- whichever weapon the server's fixed shot sequence currently mandates
+-- (Config.ShotSequence). A crosshair marks the predicted impact point (traced
+-- with the same integrator the server steps) and turns green when that impact
+-- is a wall block; a light dashed line sketches the path to it.
 --
 -- Both weapons fire off the same two-click launch meter (right side of
 -- screen). First click locks the current aim, hides the 3D targeting, and runs
@@ -463,7 +465,6 @@ local function releaseSwing()
 	resetMeter()
 
 	Remotes.FireWeapon:FireServer({
-		weapon = weapon,
 		direction = direction,
 		force = force,
 		angle = if weapon == "Catapult" then angle else 0,
@@ -501,8 +502,8 @@ end
 
 -- Keyboard and left-click while active.
 -- Mid-swing: only a left-click registers, and it releases the meter.
--- Otherwise: F toggles weapon, Q/E nudge the catapult angle (unused by the
--- ballista), left-click starts the swing for whichever weapon is active.
+-- Otherwise: Q/E nudge the catapult angle (unused by the ballista), left-click
+-- starts the swing for whichever weapon is currently mandated.
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
 		return
@@ -515,11 +516,7 @@ local function onInput(inputObject, gameProcessed)
 		return
 	end
 
-	if inputObject.KeyCode == Enum.KeyCode.F then
-		state.weapon = if state.weapon == "Ballista" then "Catapult" else "Ballista"
-		WeaponView.setActive(state.weapon)
-		publish()
-	elseif inputObject.KeyCode == Enum.KeyCode.Q then
+	if inputObject.KeyCode == Enum.KeyCode.Q then
 		state.angle = math.clamp(state.angle - ANGLE_STEP, Config.CatapultMinAngle, Config.CatapultMaxAngle)
 		publish()
 	elseif inputObject.KeyCode == Enum.KeyCode.E then
@@ -553,11 +550,22 @@ function AttackInput.start()
 end
 
 -- Called on every StateChanged. Aiming is live only while phase == "ATTACK" and
--- the local player is the Attacker. On the transition in it connects the render
--- and input handlers and publishes the readout; on the transition out it
--- disconnects them, cancels any in-progress swing, and hides everything.
+-- the local player is the Attacker. state.weapon mirrors the server-mandated
+-- currentWeapon -- there's no client choice -- and this has to happen even when
+-- `active` doesn't change, since the sequence switches weapon mid-turn (shot 2
+-- to shot 3) without a phase transition. On the transition in it connects the
+-- render and input handlers and publishes the readout; on the transition out
+-- it disconnects them, cancels any in-progress swing, and hides everything.
 function AttackInput.update(stateChanged)
 	shotsRemaining = stateChanged.shotsRemaining or 0
+
+	if stateChanged.currentWeapon and stateChanged.currentWeapon ~= state.weapon then
+		state.weapon = stateChanged.currentWeapon
+		if active then
+			WeaponView.setActive(state.weapon)
+			publish()
+		end
+	end
 
 	local shouldBeActive = stateChanged.phase == "ATTACK"
 		and stateChanged.roles ~= nil

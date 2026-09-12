@@ -315,17 +315,23 @@ A second, unrelated request mid-session (restrict the Attacker to a fixed weapon
 scoped out to a new inserted pass (session 007) rather than folded in here, since it's an
 ATTACK-phase change and this pass hadn't been playtested yet.
 
-### Pass 7 — Fixed Shot Sequence
-Replaces the Attacker's free choice of weapon on every shot with a scripted sequence —
+### Pass 7 — Fixed Shot Sequence — **done (session 007)**
+Replaced the Attacker's free choice of weapon on every shot with a scripted sequence —
 Catapult, Catapult, Ballista, three shots total instead of six freely-chosen ones
-(`Config.ShotSequence`). The server derives and broadcasts which weapon is mandated for the
-current shot (`MatchController`); `WeaponManager` trusts that instead of the client's claim;
-`AttackInput` drops its `F` toggle and mirrors whichever weapon is current, including the
-switch mid-turn from Catapult to Ballista. Deliberately overrides spec's "the Attacker chooses
-freely between the two weapons on every shot."
-**Done when:** the Attacker gets exactly 3 shots in the fixed order with no way to switch
-weapons out of turn, and the HUD/firing-prop model track the mandated weapon correctly
-throughout.
+(`Config.ShotSequence`, with `ShotsPerTurn` now derived from its length). The server derives
+and broadcasts which weapon is mandated for the current shot (`MatchController.currentWeapon`,
+read from `Config.ShotSequence` and `shotsRemaining`); `WeaponManager` trusts that instead of
+the client's claim, reading it before `consumeShot()` advances the index. `AttackInput` dropped
+its `F` toggle entirely — `state.weapon` mirrors the broadcast `currentWeapon` on every
+`StateChanged`, not just on the ATTACK-phase transition, since the sequence switches weapon
+mid-turn (Catapult to Ballista, between shot 2 and shot 3) with no phase or role change to hang
+the update off of. Deliberately overrides spec's "the Attacker chooses freely between the two
+weapons on every shot."
+**Done:** the Attacker gets exactly 3 shots in the fixed order with no way to switch weapons out
+of turn, and the HUD/firing-prop model track the mandated weapon correctly throughout, including
+the mid-turn switch. Playtested green with two players; user's assessment was "Okay looking
+good." Randomized Piece Generation (Pass 8) was drafted as this session's own close-time
+precondition once the playtest looked good, per the cadence session 006 established.
 
 ### Pass 8 — Randomized Piece Generation
 Replaces the fixed L-piece with a per-placement randomly generated shape: 3-6 of the 9 cells in

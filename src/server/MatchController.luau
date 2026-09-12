@@ -51,12 +51,23 @@ local function rebuildRoles()
 	}
 end
 
+-- The weapon mandated for the shot about to be fired, derived from
+-- Config.ShotSequence and how many shots remain -- nil outside ATTACK. The
+-- shot index counts up as shotsRemaining counts down.
+local function currentWeapon()
+	if state.phase ~= "ATTACK" then
+		return nil
+	end
+	return Config.ShotSequence[#Config.ShotSequence - state.shotsRemaining + 1]
+end
+
 local function broadcast()
 	Remotes.StateChanged:FireAllClients({
 		phase = state.phase,
 		roles = state.roles,
 		blocksRemaining = state.blocksRemaining,
 		shotsRemaining = state.shotsRemaining,
+		currentWeapon = currentWeapon(),
 		round = state.round,
 		score = state.score,
 	})
@@ -210,6 +221,12 @@ end
 
 function MatchController.isAttacker(player)
 	return state.roles ~= nil and state.roles.attacker == player.UserId
+end
+
+-- The weapon mandated for the shot about to fire. Callers must read this
+-- before consumeShot(), which is what advances the shot index.
+function MatchController.currentWeapon()
+	return currentWeapon()
 end
 
 -- Spend one ATTACK shot. Returns false (no shot fired) outside ATTACK or when

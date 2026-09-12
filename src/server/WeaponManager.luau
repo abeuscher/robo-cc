@@ -197,16 +197,18 @@ local function onFireWeapon(player, payload)
 	if typeof(payload) ~= "table" then
 		return
 	end
-	local weapon = payload.weapon
-	if weapon ~= "Ballista" and weapon ~= "Catapult" then
-		return
-	end
 	local direction = payload.direction
 	if typeof(direction) ~= "Vector3" or direction.Magnitude < 1e-3 then
 		return
 	end
 	local force = tonumber(payload.force) or 0
 	local angle = tonumber(payload.angle) or 0
+
+	-- Read before consumeShot(), which advances the shot index.
+	local weapon = MatchController.currentWeapon()
+	if not weapon then
+		return
+	end
 
 	if not MatchController.consumeShot() then
 		return
