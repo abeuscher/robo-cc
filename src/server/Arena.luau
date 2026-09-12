@@ -4,7 +4,7 @@
 -- reset() empties the folder; build() fills it -- called once at server start.
 -- resetRound() is the lighter per-round path: it only repositions the Princess,
 -- leaving the static geometry and the Blocks folder untouched (MatchController
--- also runs BlockManager.spawnAll() and clears live projectiles each round).
+-- also runs BlockManager.resetQueue() and clears live projectiles each round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -134,16 +134,6 @@ function Arena.build()
 			weapon .. "FiringPosition",
 			Vector3.new(4, 0.1, 4),
 			Vector3.new(sign * Config.MuzzleOffsetX, Config.GroundLevel + 0.05, -(halfGap + 2)),
-			MARK,
-			0.35
-		).Parent = root
-	end
-
-	for _, typeDef in Config.BlockTypes do
-		part(
-			typeDef.Name .. "Pile",
-			Vector3.new(typeDef.Size.X + 1, 0.1, typeDef.Size.Z + 1),
-			Vector3.new(typeDef.PileOrigin.X, Config.GroundLevel + 0.05, typeDef.PileOrigin.Z),
 			MARK,
 			0.35
 		).Parent = root

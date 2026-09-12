@@ -117,12 +117,12 @@ local function runRoundResetHooks()
 end
 
 -- BUILD setup for a round: reposition the Princess, clear any live
--- projectiles, respawn the block piles, and grant a fresh block budget. Used
+-- projectiles, reset the block queue, and grant a fresh block budget. Used
 -- both for round 1 (from start()) and after every SWAP.
 local function startRound()
 	Arena.resetRound()
 	runRoundResetHooks()
-	BlockManager.spawnAll()
+	BlockManager.resetQueue()
 	state.blocksRemaining = initialRemaining()
 	state.phase = "BUILD"
 	broadcast()

@@ -124,7 +124,7 @@ local function render()
 	if hintForAttacker then
 		hintLabel.Text = "mouse aim · Q/E angle (catapult) · F weapon · C camera · click, click at meter target to launch"
 	else
-		hintLabel.Text = "click pile to lift · click cell to place · R rotate · Q drop · click a wall block to return it"
+		hintLabel.Text = "click cell to place · R rotate · Z flip · Confirm Wall when done"
 	end
 
 	local waiting = state.roles == nil or state.roles.attacker == nil

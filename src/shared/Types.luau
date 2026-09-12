@@ -10,9 +10,9 @@ export type BlockType = "LPiece"
 export type Weapon = "Ballista" | "Catapult"
 
 export type PlacePayload = {
-	blockId: number,
-	cell: Vector2, -- bottom-left anchor cell of the (rotated) footprint's bounding box
+	cell: Vector2, -- bottom-left anchor cell of the (rotated/flipped) footprint's bounding box
 	rotation: number, -- 0-3, quarter turns
+	flipped: boolean, -- mirrored left-right before rotation is applied
 }
 
 export type ShotPayload = {

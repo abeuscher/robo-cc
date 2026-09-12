@@ -289,23 +289,45 @@ were wide (`1.25×2.5×2.5`, the original spec-locked brick ratio); switched to 
 gravity judges the result exactly as it did for rectangular blocks. Playtested green with two
 players. User's assessment went beyond correctness: the pilot "succeeds in making the game
 more interesting," but specifically credited "gravity turning on after placement" — not the
-L-shape itself — as the source. That distinction fed directly into Pass 6 and Pass 7, inserted
-below.
+L-shape itself — as the source. That distinction fed directly into Pass 6 and what was then
+Pass 7 (since renumbered to Pass 8 — see Pass 6's own entry below for how).
 
-### Pass 6 — Piece Queue (Sequential Hand-off)
-Removes the physical pile (12 pieces pre-spawned into a stack, freely liftable and re-placeable
+### Pass 6 — Piece Queue (Sequential Hand-off) — **done (session 006)**
+Removed the physical pile (12 pieces pre-spawned into a stack, freely liftable and re-placeable
 in any order) in favor of a sequential hand-off: the Builder holds exactly one piece at a time
-and must place it before the next is issued. Shape stays the fixed L-piece from Pass 5 and
-count stays 12 — this pass is purely the interaction-model change (`BlockManager`,
-`BuildManager`, `Arena`, `BuildInput`, `Hud`), kept separate from Pass 7's shape-generation work
-so each half can be playtested in isolation. Open questions to settle at that session's Open
-Gate: whether any undo/rearrange survives (spec currently says pieces can be picked up and
-re-placed before confirming — the sequential model may override that), and whether Confirm Wall
-can end BUILD before the queue is exhausted.
-**Done when:** no pile geometry is visible, the Builder always holds exactly one piece, placing
-it issues the next, and the round still reaches `ConfirmBuild` / ATTACK correctly.
+and must place it before the next is issued. Shape stayed the fixed L-piece from Pass 5 and
+count stayed 12 — this pass was purely the interaction-model change (`BlockManager`,
+`BuildManager`, `Arena`, `BuildInput`, `Hud`), kept separate from the shape-generation work
+(Pass 8) so each half can be playtested in isolation. Both open questions from the brief were
+settled at the Open Gate: undo/rearrange was removed entirely (the user's call, made for its
+own sake — "I think that makes it more interesting" — not a fallback), and Confirm Wall can be
+pressed at any time (already true beforehand; needed no code change).
+Scope extended during the session, from a follow-up request: added a mirror/flip (`Z` key),
+since the existing 4-state rotation already covers every turn about the Z axis and couldn't
+reach a shape's chirality-flipped twin (an L-piece's mirror is a J-piece). The mirror has to
+happen at the geometry level, not via `CFrame` — a rigid rotation can never produce a mirror
+image on its own — so `BlockManager.placeCurrent` builds the union from the mirrored cell list
+directly when flipped.
+**Done:** no pile geometry is visible, the Builder always holds exactly one piece, placing it
+issues the next, all 4 rotations and the mirror flip work, and the round reaches `ConfirmBuild`
+/ ATTACK correctly. Playtested green with two players; user's assessment was "Much better."
+A second, unrelated request mid-session (restrict the Attacker to a fixed weapon sequence) was
+scoped out to a new inserted pass (session 007) rather than folded in here, since it's an
+ATTACK-phase change and this pass hadn't been playtested yet.
 
-### Pass 7 — Randomized Piece Generation
+### Pass 7 — Fixed Shot Sequence
+Replaces the Attacker's free choice of weapon on every shot with a scripted sequence —
+Catapult, Catapult, Ballista, three shots total instead of six freely-chosen ones
+(`Config.ShotSequence`). The server derives and broadcasts which weapon is mandated for the
+current shot (`MatchController`); `WeaponManager` trusts that instead of the client's claim;
+`AttackInput` drops its `F` toggle and mirrors whichever weapon is current, including the
+switch mid-turn from Catapult to Ballista. Deliberately overrides spec's "the Attacker chooses
+freely between the two weapons on every shot."
+**Done when:** the Attacker gets exactly 3 shots in the fixed order with no way to switch
+weapons out of turn, and the HUD/firing-prop model track the mandated weapon correctly
+throughout.
+
+### Pass 8 — Randomized Piece Generation
 Replaces the fixed L-piece with a per-placement randomly generated shape: 3-6 of the 9 cells in
 a 3×3 area filled at random (count and which cells both randomized). Cells that end up mutually
 adjacent fuse into one rigid `UnionOperation`; cells that end up isolated stay independently
@@ -313,13 +335,14 @@ physical. Breaks the invariant every prior pass relied on — one placed piece h
 exactly one rigid body — so a single placement now needs to resolve into however many separate
 falling bodies its random connectivity produces at ATTACK start. Requires a network-contract
 change (the server generates the shape and has to hand it to the client — it can no longer live
-as a static named entry in `Config`). `GridUtil`'s shape/rotation math and `BuildInput`'s
-per-cell ghost pool (both built in Pass 5) are expected to take an arbitrary runtime-generated
-shape unchanged.
-**Done when:** each of the Builder's 9 pieces is a freshly randomized shape, places and rotates
-correctly, and at ATTACK start its connected clusters fall independently of its isolated cells.
+as a static named entry in `Config`). `GridUtil`'s shape/rotation math (including Pass 6's
+mirrorShape) and `BuildInput`'s per-cell ghost pool are expected to take an arbitrary
+runtime-generated shape unchanged.
+**Done when:** each of the Builder's 9 pieces is a freshly randomized shape, places, rotates,
+and flips correctly, and at ATTACK start its connected clusters fall independently of its
+isolated cells.
 
-### Pass 8 — Tune, then launch
+### Pass 9 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 

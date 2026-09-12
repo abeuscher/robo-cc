@@ -43,11 +43,25 @@ function GridUtil.snapToWorld(origin, position)
 	return GridUtil.cellToWorld(origin, GridUtil.worldToCell(origin, position))
 end
 
+-- Shifts a list of cell offsets so the minimum column and row are both 0,
+-- without changing their shape. Shared by rotateShape and mirrorShape so both
+-- keep "anchor" meaning "bottom-left cell of the bounding box."
+local function normalizeShape(cells)
+	local minX, minY = math.huge, math.huge
+	for _, c in cells do
+		minX = math.min(minX, c.X)
+		minY = math.min(minY, c.Y)
+	end
+	local normalized = {}
+	for i, c in cells do
+		normalized[i] = Vector2.new(c.X - minX, c.Y - minY)
+	end
+	return normalized
+end
+
 -- Rotates a shape's local cell offsets by `rotation` quarter-turns (0-3,
 -- matching CFrame.Angles(0, 0, math.rad(90 * rotation))'s (x,y) -> (-y,x) per
--- turn), then re-normalizes so the minimum column and row are both 0 again --
--- keeps "anchor" meaning "bottom-left cell of the bounding box" at every
--- rotation.
+-- turn), then re-normalizes.
 function GridUtil.rotateShape(shape, rotation)
 	local turns = rotation % 4
 	local rotated = {}
@@ -58,16 +72,19 @@ function GridUtil.rotateShape(shape, rotation)
 		end
 		rotated[i] = Vector2.new(x, y)
 	end
+	return normalizeShape(rotated)
+end
 
-	local minX, minY = math.huge, math.huge
-	for _, c in rotated do
-		minX = math.min(minX, c.X)
-		minY = math.min(minY, c.Y)
+-- Mirrors a shape's local cell offsets left-right (negates column, keeps
+-- row), then re-normalizes. Produces the shape's chirality-flipped twin (an
+-- L-piece's mirror is a J-piece) -- something no combination of rotateShape's
+-- turns can ever reach on its own.
+function GridUtil.mirrorShape(shape)
+	local mirrored = {}
+	for i, offset in shape do
+		mirrored[i] = Vector2.new(-offset.X, offset.Y)
 	end
-	for i, c in rotated do
-		rotated[i] = Vector2.new(c.X - minX, c.Y - minY)
-	end
-	return rotated
+	return normalizeShape(mirrored)
 end
 
 -- The (cols, rows) bounding box of a shape already normalized to min (0, 0).

@@ -1,11 +1,12 @@
--- Builder-only placement. Click a block in its pile to "lift" it (it becomes
--- the ghost); the mouse ray is intersected with the vertical build plane
--- (world Z = BuildZoneOrigin.Z) and the ghost snaps to the hovered cell. Click
--- a cell to place, R to cycle rotation (0-3 quarter turns), Q to drop the
--- lifted block, click a block already on the wall (empty-handed) to send it
--- back to its pile. Confirm Wall ends BUILD. Active only while phase ==
--- "BUILD" and the local player is the Builder; everything is intent -- the
--- server validates.
+-- Builder-only placement. The Builder always holds exactly one piece --
+-- there's no pile to pick from and no picking a placed piece back up. The
+-- mouse ray is intersected with the vertical build plane (world Z =
+-- BuildZoneOrigin.Z) and the ghost snaps to the hovered cell. Click a cell to
+-- place, R to cycle rotation (0-3 quarter turns), Z to mirror it left-right
+-- (its chirality flip -- an L-piece's mirror is a J-piece, which no rotation
+-- alone can reach). Confirm Wall ends BUILD at any time. Active only while
+-- phase == "BUILD" and the local player is the Builder; everything is intent
+-- -- the server validates.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -23,24 +24,22 @@ local player = Players.LocalPlayer
 local BuildInput = {}
 
 local PLANE_Z = Config.BuildZoneOrigin.Z
+-- Only one block type this session (session 007 makes this per-piece and
+-- random); every held piece uses this shape.
+local PIECE_SHAPE = Config.BlockTypes[1].Shape
 
 local active = false
+local piecesRemaining = 0
+local rotation = 0
+local flipped = false
 local ghostCubes = {} -- pool of translucent per-cell preview parts, grown as needed
 local confirmGui
 local renderConn, clickConn
 
--- The block currently lifted off a pile, or nil. shape comes from the type;
--- rotation is the player's R cycle (0-3 quarter turns).
-local held = nil -- { id: number, shape: {Vector2}, rotation: number }
-
--- Looks up a Config.BlockTypes entry by its Name.
-local function typeDefByName(name)
-	for _, def in Config.BlockTypes do
-		if def.Name == name then
-			return def
-		end
-	end
-	return nil
+-- The held piece's footprint at rotation 0: PIECE_SHAPE mirrored left-right if
+-- `flipped`. Rotation is applied on top of this wherever it's used.
+local function baseShape()
+	return if flipped then GridUtil.mirrorShape(PIECE_SHAPE) else PIECE_SHAPE
 end
 
 -- Grows the ghost-cube pool to at least `count` parts. Each is a translucent
@@ -70,10 +69,10 @@ local function hideGhost()
 	end
 end
 
--- Shows the ghost as one cube per cell of the held shape's actual footprint at
--- `anchor`, rotated by held.rotation -- the real shape, not a bounding box.
+-- Shows the ghost as one cube per cell of the held piece's actual footprint
+-- at `anchor`, rotated by `rotation` -- the real shape, not a bounding box.
 local function showGhostAt(anchor)
-	local cells = GridUtil.coveredCells(held.shape, anchor, held.rotation)
+	local cells = GridUtil.coveredCells(baseShape(), anchor, rotation)
 	ensureGhostCubes(#cells)
 	for i, cell in cells do
 		local cube = ghostCubes[i]
@@ -128,28 +127,6 @@ local function cameraRay()
 	return camera:ViewportPointToRay(mouse.X, mouse.Y)
 end
 
--- Finds the server-built folder that holds every block, pile and wall alike
--- (Workspace.ActiveRound.Blocks), or nil if the arena isn't up yet.
-local function blocksFolder()
-	local root = Workspace:FindFirstChild("ActiveRound")
-	return root and root:FindFirstChild("Blocks")
-end
-
--- Raycasts along the ray but only against blocks (Include filter). Returns the
--- block Part under the cursor, or nil. Used to lift a pile block or to return a
--- wall block.
-local function blockUnderRay(ray)
-	local folder = blocksFolder()
-	if not folder then
-		return nil
-	end
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = { folder }
-	local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
-	return result and result.Instance or nil
-end
-
 -- Intersects the ray with the vertical build plane (world Z = PLANE_Z) and
 -- converts the hit point to an integer (column, row) cell via GridUtil. This
 -- cell is the bottom-left anchor of the footprint. Returns nil if the ray is
@@ -170,11 +147,11 @@ local function anchorUnderRay(ray)
 	return cell
 end
 
--- True when every cell of the held block's footprint anchored at `anchor` is on
--- the grid. (Occupancy is the server's call; this is just the bounds check that
--- decides whether to show the ghost / send the request.)
+-- True when every cell of the held piece's footprint anchored at `anchor` is
+-- on the grid. (Occupancy is the server's call; this is just the bounds check
+-- that decides whether to show the ghost / send the request.)
 local function footprintFits(anchor)
-	for _, c in GridUtil.coveredCells(held.shape, anchor, held.rotation) do
+	for _, c in GridUtil.coveredCells(baseShape(), anchor, rotation) do
 		if not GridUtil.isInside(c) then
 			return false
 		end
@@ -182,39 +159,11 @@ local function footprintFits(anchor)
 	return true
 end
 
--- Fills `held` from a pile block Part and hides that Part on this client only
--- (LocalTransparencyModifier -- no replication, other players still see it in
--- the stack) so it reads as lifted out. Restores any previously-held Part first.
-local function lift(part)
-	if held and held.part then
-		held.part.LocalTransparencyModifier = 0
-	end
-	local def = typeDefByName(part:GetAttribute("BlockType"))
-	if not def then
-		return
-	end
-	held = {
-		id = part:GetAttribute("BlockId"),
-		part = part,
-		shape = def.Shape,
-		rotation = 0,
-	}
-	part.LocalTransparencyModifier = 1
-end
-
--- Clears the lifted block, un-hides its Part, and hides the ghost.
-local function drop()
-	if held and held.part then
-		held.part.LocalTransparencyModifier = 0
-	end
-	held = nil
-	hideGhost()
-end
-
--- Runs every rendered frame while placement is active. With a block lifted,
--- shows the ghost snapped to the hovered footprint; otherwise hides it.
+-- Runs every rendered frame while placement is active. Shows the ghost
+-- snapped to the hovered footprint while a piece remains to place; hides it
+-- once the queue is empty or the cell under the cursor doesn't fit.
 local function onRender()
-	if not held then
+	if piecesRemaining <= 0 then
 		hideGhost()
 		return
 	end
@@ -228,63 +177,42 @@ local function onRender()
 end
 
 -- Handles keyboard and left-click while placement is active. R cycles the held
--- block's rotation, Q drops it. A left click either places the held block on
--- the hovered cell, lifts a pile block, or returns a wall block to its pile.
--- gameProcessed is true when the UI already consumed the input.
+-- piece's rotation, Z mirrors it left-right. A left click places it on the
+-- hovered cell, if one remains and the cell fits. gameProcessed is true when
+-- the UI already consumed the input.
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
 		return
 	end
 
 	if inputObject.KeyCode == Enum.KeyCode.R then
-		if held then
-			held.rotation = (held.rotation + 1) % 4
-		end
+		rotation = (rotation + 1) % 4
 		return
 	end
-	if inputObject.KeyCode == Enum.KeyCode.Q then
-		if held then
-			drop()
-		end
+	if inputObject.KeyCode == Enum.KeyCode.Z then
+		flipped = not flipped
 		return
 	end
 	if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return
 	end
+	if piecesRemaining <= 0 then
+		return
+	end
 
 	local ray = cameraRay()
-	if not ray then
+	local anchor = ray and anchorUnderRay(ray)
+	if not anchor or not footprintFits(anchor) then
 		return
 	end
 
-	if held then
-		local anchor = anchorUnderRay(ray)
-		if anchor and footprintFits(anchor) then
-			Remotes.PlaceBlock:FireServer({
-				blockId = held.id,
-				cell = Vector2.new(anchor.X, anchor.Y),
-				rotation = held.rotation,
-			})
-			drop()
-			return
-		end
-		-- Not a valid cell: allow switching to a different pile block.
-		local part = blockUnderRay(ray)
-		if part and part:GetAttribute("BlockId") and not part:GetAttribute("Placed") then
-			lift(part)
-		end
-		return
-	end
-
-	local part = blockUnderRay(ray)
-	if not part or not part:GetAttribute("BlockId") then
-		return
-	end
-	if part:GetAttribute("Placed") then
-		Remotes.PickupBlock:FireServer(part:GetAttribute("BlockId"))
-	else
-		lift(part)
-	end
+	Remotes.PlaceBlock:FireServer({
+		cell = Vector2.new(anchor.X, anchor.Y),
+		rotation = rotation,
+		flipped = flipped,
+	})
+	rotation = 0
+	flipped = false
 end
 
 -- One-time setup, called once after the player leaves the title screen. Creates
@@ -298,8 +226,10 @@ end
 -- Called on every StateChanged broadcast. Placement is live only while the
 -- phase is BUILD and the local player is the Builder. On the transition in it
 -- shows the button and connects onRender and onInput; on the transition out it
--- disconnects them, drops any held block, and hides the ghost and button.
+-- disconnects them and hides the ghost and button.
 function BuildInput.update(state)
+	piecesRemaining = (state.blocksRemaining and state.blocksRemaining.LPiece) or 0
+
 	local shouldBeActive = state.phase == "BUILD"
 		and state.roles ~= nil
 		and state.roles.builder == player.UserId
@@ -322,7 +252,9 @@ function BuildInput.update(state)
 			clickConn:Disconnect()
 			clickConn = nil
 		end
-		drop()
+		rotation = 0
+		flipped = false
+		hideGhost()
 		confirmGui.Enabled = false
 	end
 end

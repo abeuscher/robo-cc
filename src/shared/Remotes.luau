@@ -8,7 +8,6 @@ local FOLDER_NAME = "Remotes"
 local EVENT_NAMES = {
 	"StartRequested",
 	"PlaceBlock",
-	"PickupBlock",
 	"ConfirmBuild",
 	"FireWeapon",
 	"StateChanged",

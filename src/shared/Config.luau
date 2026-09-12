@@ -16,8 +16,7 @@ local L_SHAPE = {
 
 -- Block types. Counts sum to BlockCount. Size is each type's world-space
 -- bounding box (cols x rows of BLOCK_SIZE, one cell deep) -- used only for
--- pile-marker sizing and pile spacing; actual placement/occupancy reads Shape,
--- not Size. PileOrigin is filled in below once the piles' X positions are known.
+-- sizing the trench (below); actual placement/occupancy reads Shape, not Size.
 local BLOCK_TYPES = {
 	{ Name = "LPiece", Shape = L_SHAPE, Size = Vector3.new(BLOCK_SIZE.X * 3, BLOCK_SIZE.Y * 2, BLOCK_SIZE.Z), Count = 12 },
 }
@@ -38,23 +37,11 @@ local BUILD_ZONE_SIZE = Vector2.new(TOTAL_BLOCK_WIDTH / 2, TOTAL_BLOCK_HEIGHT)
 
 local GAP_WIDTH = 40 -- firing distance across the trench; independently tuned, not block-derived
 
--- Piles sit clear of the build zone on the builder's right, spaced out one
--- after another; the platform is sized to cover the zone plus every pile.
-local PILE_MARGIN = 5
-local PILE_GAP = 9
-local PILE_Z = 24
-do
-	local pileX = BUILD_ZONE_SIZE.X / 2 + PILE_MARGIN
-	for _, typeDef in BLOCK_TYPES do
-		typeDef.PileOrigin = Vector3.new(pileX, 0, PILE_Z)
-		pileX += PILE_GAP
-	end
-end
-
-local platformHalfWidth = BUILD_ZONE_SIZE.X / 2
-for _, typeDef in BLOCK_TYPES do
-	platformHalfWidth = math.max(platformHalfWidth, typeDef.PileOrigin.X + typeDef.Size.X / 2 + PILE_MARGIN)
-end
+-- No physical pile (session 006 -- pieces are issued one at a time, not
+-- pre-spawned into a stack) -- the platform just needs to cover the build
+-- zone with a little clearance.
+local PLATFORM_MARGIN = 5
+local platformHalfWidth = BUILD_ZONE_SIZE.X / 2 + PLATFORM_MARGIN
 
 local Config = {
 	-- Blocks
@@ -68,7 +55,7 @@ local Config = {
 	-- Arena
 	PrincessDistance = 14, -- studs behind the build zone; the single most important tuning value
 	GapWidth = GAP_WIDTH,
-	PlatformSize = Vector3.new(platformHalfWidth * 2, 1, 30), -- wide enough for the build zone plus both piles
+	PlatformSize = Vector3.new(platformHalfWidth * 2, 1, 30), -- wide enough for the build zone plus its margin
 	PrincessSize = Vector3.new(2, 5, 2),
 	GroundLevel = 0, -- top surface of both platforms
 
