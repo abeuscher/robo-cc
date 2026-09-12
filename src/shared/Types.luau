@@ -5,14 +5,14 @@ export type Phase = "BUILD" | "ATTACK" | "RESOLVE" | "SWAP"
 
 export type Role = "Builder" | "Attacker"
 
-export type BlockType = "Standard" | "Wide"
+export type BlockType = "LPiece"
 
 export type Weapon = "Ballista" | "Catapult"
 
 export type PlacePayload = {
 	blockId: number,
-	cell: Vector2, -- bottom-left anchor cell of the footprint
-	rotated: boolean, -- long axis vertical (Wide only)
+	cell: Vector2, -- bottom-left anchor cell of the (rotated) footprint's bounding box
+	rotation: number, -- 0-3, quarter turns
 }
 
 export type ShotPayload = {
@@ -28,8 +28,7 @@ export type Roles = {
 }
 
 export type BlocksRemaining = {
-	Standard: number,
-	Wide: number,
+	LPiece: number,
 }
 
 export type Score = { [number]: number } -- UserId -> rounds won

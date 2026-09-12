@@ -2,6 +2,11 @@
 -- world X (columns) and world Y (rows) at a fixed world Z. Callers pass the
 -- plane origin (its centre, world space); pitch and extent come from Config.
 -- A cell is a Vector2 of integer (column, row), (0, 0) at the bottom-left.
+--
+-- A block's footprint is a "shape": a list of local (column, row) cell
+-- offsets at rotation 0, normalized so its minimum column and row are both 0.
+-- `anchor` is always the bottom-left cell of the shape's (rotated) bounding
+-- box, matching the old rectangular-footprint convention.
 
 local Config = require(script.Parent:WaitForChild("Config"))
 
@@ -38,26 +43,56 @@ function GridUtil.snapToWorld(origin, position)
 	return GridUtil.cellToWorld(origin, GridUtil.worldToCell(origin, position))
 end
 
--- Grid-cell span (columns, rows) a block of the given world Size occupies,
--- optionally rotated 90deg so its long axis runs vertically. Rounded to whole
--- cells; never smaller than 1x1.
-function GridUtil.spanForSize(size, rotated)
-	local horizontal = if rotated then size.Y else size.X
-	local vertical = if rotated then size.X else size.Y
-	return Vector2.new(
-		math.max(1, math.round(horizontal / Config.GridSize.X)),
-		math.max(1, math.round(vertical / Config.GridSize.Y))
-	)
+-- Rotates a shape's local cell offsets by `rotation` quarter-turns (0-3,
+-- matching CFrame.Angles(0, 0, math.rad(90 * rotation))'s (x,y) -> (-y,x) per
+-- turn), then re-normalizes so the minimum column and row are both 0 again --
+-- keeps "anchor" meaning "bottom-left cell of the bounding box" at every
+-- rotation.
+function GridUtil.rotateShape(shape, rotation)
+	local turns = rotation % 4
+	local rotated = {}
+	for i, offset in shape do
+		local x, y = offset.X, offset.Y
+		for _ = 1, turns do
+			x, y = -y, x
+		end
+		rotated[i] = Vector2.new(x, y)
+	end
+
+	local minX, minY = math.huge, math.huge
+	for _, c in rotated do
+		minX = math.min(minX, c.X)
+		minY = math.min(minY, c.Y)
+	end
+	for i, c in rotated do
+		rotated[i] = Vector2.new(c.X - minX, c.Y - minY)
+	end
+	return rotated
 end
 
--- Every integer cell covered by a footprint whose bottom-left cell is `anchor`
--- and whose size in cells is `span`.
-function GridUtil.coveredCells(anchor, span)
+-- The (cols, rows) bounding box of a shape already normalized to min (0, 0).
+function GridUtil.shapeSpan(shape)
+	local maxX, maxY = 0, 0
+	for _, c in shape do
+		maxX = math.max(maxX, c.X)
+		maxY = math.max(maxY, c.Y)
+	end
+	return Vector2.new(maxX + 1, maxY + 1)
+end
+
+-- The bounding box of `shape` after rotating it by `rotation` quarter-turns.
+function GridUtil.rotatedSpan(shape, rotation)
+	return GridUtil.shapeSpan(GridUtil.rotateShape(shape, rotation))
+end
+
+-- Every integer cell covered by `shape` (local offsets at rotation 0) rotated
+-- by `rotation` quarter-turns and placed with its bounding box's bottom-left
+-- cell at `anchor`.
+function GridUtil.coveredCells(shape, anchor, rotation)
+	local rotated = GridUtil.rotateShape(shape, rotation)
 	local cells = {}
-	for dx = 0, span.X - 1 do
-		for dy = 0, span.Y - 1 do
-			table.insert(cells, Vector2.new(anchor.X + dx, anchor.Y + dy))
-		end
+	for _, c in rotated do
+		table.insert(cells, Vector2.new(anchor.X + c.X, anchor.Y + c.Y))
 	end
 	return cells
 end

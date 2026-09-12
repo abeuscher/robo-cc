@@ -1,14 +1,25 @@
 -- Every tunable in one table. Nothing in game logic should hardcode a number
 -- that belongs here. Values are first-pass guesses; expect to tune by feel.
 
-local BLOCK_SIZE = Vector3.new(2.5, 1.25, 2.5)
+local BLOCK_SIZE = Vector3.new(1.25, 1.25, 1.25) -- a cube, settled on the original height
 
--- Block types. Counts sum to BlockCount. Size.X is the long horizontal axis;
--- a Wide block is three Standard blocks across. PileOrigin is filled in below
--- once the piles' X positions are known.
+-- The L-piece footprint: local (column, row) grid-cell offsets at rotation 0,
+-- normalized so the minimum column and row are both 0. Three cells in a row
+-- along the top, one hanging below the row's left end -- a standard
+-- L-tetromino, one cell deep.
+local L_SHAPE = {
+	Vector2.new(0, 0),
+	Vector2.new(0, 1),
+	Vector2.new(1, 1),
+	Vector2.new(2, 1),
+}
+
+-- Block types. Counts sum to BlockCount. Size is each type's world-space
+-- bounding box (cols x rows of BLOCK_SIZE, one cell deep) -- used only for
+-- pile-marker sizing and pile spacing; actual placement/occupancy reads Shape,
+-- not Size. PileOrigin is filled in below once the piles' X positions are known.
 local BLOCK_TYPES = {
-	{ Name = "Standard", Size = BLOCK_SIZE, Count = 6, Rotatable = false },
-	{ Name = "Wide", Size = Vector3.new(BLOCK_SIZE.X * 3, BLOCK_SIZE.Y, BLOCK_SIZE.Z), Count = 6, Rotatable = true },
+	{ Name = "LPiece", Shape = L_SHAPE, Size = Vector3.new(BLOCK_SIZE.X * 3, BLOCK_SIZE.Y * 2, BLOCK_SIZE.Z), Count = 12 },
 }
 
 local BLOCK_COUNT = 0
@@ -47,8 +58,8 @@ end
 
 local Config = {
 	-- Blocks
-	BlockSize = BLOCK_SIZE, -- the Standard block: width, height, depth
-	BlockMass = 25, -- mass of a Standard block; wider blocks scale up at equal density
+	BlockSize = BLOCK_SIZE, -- sub-cube dimensions; every block is built from cells this size
+	BlockMass = 25, -- mass of one sub-cube's worth of block; a multi-cell piece scales up at equal density
 	BlockFriction = 0.5,
 	BlockRestitution = 0.1,
 	BlockCount = BLOCK_COUNT, -- total across all types below
@@ -62,7 +73,7 @@ local Config = {
 	GroundLevel = 0, -- top surface of both platforms
 
 	-- Build grid (a vertical plane: X = columns, Y = rows, fixed world Z)
-	GridSize = Vector2.new(2.5, 1.25), -- column pitch, row pitch
+	GridSize = Vector2.new(BLOCK_SIZE.X, BLOCK_SIZE.Y), -- column pitch, row pitch -- always the sub-cube's own footprint
 	BuildZoneSize = BUILD_ZONE_SIZE, -- studs, width x height -- the trench, sized off the block totals
 	BuildZoneOrigin = Vector3.new(0, BUILD_ZONE_SIZE.Y / 2, GAP_WIDTH / 2 + BLOCK_SIZE.Z / 2), -- plane centre, world space
 

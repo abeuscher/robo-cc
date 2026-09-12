@@ -1,10 +1,11 @@
 -- Builder-only placement. Click a block in its pile to "lift" it (it becomes
 -- the ghost); the mouse ray is intersected with the vertical build plane
 -- (world Z = BuildZoneOrigin.Z) and the ghost snaps to the hovered cell. Click
--- a cell to place, R to rotate a Wide block, Q to drop the lifted block, click
--- a block already on the wall (empty-handed) to send it back to its pile.
--- Confirm Wall ends BUILD. Active only while phase == "BUILD" and the local
--- player is the Builder; everything is intent -- the server validates.
+-- a cell to place, R to cycle rotation (0-3 quarter turns), Q to drop the
+-- lifted block, click a block already on the wall (empty-handed) to send it
+-- back to its pile. Confirm Wall ends BUILD. Active only while phase ==
+-- "BUILD" and the local player is the Builder; everything is intent -- the
+-- server validates.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -22,15 +23,15 @@ local player = Players.LocalPlayer
 local BuildInput = {}
 
 local PLANE_Z = Config.BuildZoneOrigin.Z
-local ROTATE_CF = CFrame.Angles(0, 0, math.rad(90))
 
 local active = false
-local ghost, confirmGui
+local ghostCubes = {} -- pool of translucent per-cell preview parts, grown as needed
+local confirmGui
 local renderConn, clickConn
 
--- The block currently lifted off a pile, or nil. size is the Part's world Size;
--- rotatable comes from the type; rotated is the player's R toggle.
-local held = nil -- { id: number, size: Vector3, rotatable: boolean, rotated: boolean }
+-- The block currently lifted off a pile, or nil. shape comes from the type;
+-- rotation is the player's R cycle (0-3 quarter turns).
+local held = nil -- { id: number, shape: {Vector2}, rotation: number }
 
 -- Looks up a Config.BlockTypes entry by its Name.
 local function typeDefByName(name)
@@ -42,22 +43,46 @@ local function typeDefByName(name)
 	return nil
 end
 
--- Creates the translucent preview block once and parks it in Workspace. It is
--- client-only (never replicated), non-colliding, and excluded from raycasts
--- (CanQuery = false) so it can't interfere with its own placement checks. Size
--- and CFrame are rewritten every frame by onRender; starts invisible.
-local function makeGhost()
-	local part = Instance.new("Part")
-	part.Name = "BuildGhost"
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CastShadow = false
-	part.Transparency = 1
-	part.Color = Color3.fromRGB(120, 200, 255)
-	part.Size = Config.BlockSize
-	part.Parent = Workspace
-	return part
+-- Grows the ghost-cube pool to at least `count` parts. Each is a translucent
+-- preview cube, client-only (never replicated), non-colliding, and excluded
+-- from raycasts (CanQuery = false) so it can't interfere with its own
+-- placement checks. Starts invisible; onRender repositions and shows the ones
+-- it needs each frame.
+local function ensureGhostCubes(count)
+	for i = #ghostCubes + 1, count do
+		local cube = Instance.new("Part")
+		cube.Name = "BuildGhostCell"
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.CanQuery = false
+		cube.CastShadow = false
+		cube.Transparency = 1
+		cube.Color = Color3.fromRGB(120, 200, 255)
+		cube.Size = Config.BlockSize
+		cube.Parent = Workspace
+		ghostCubes[i] = cube
+	end
+end
+
+local function hideGhost()
+	for _, cube in ghostCubes do
+		cube.Transparency = 1
+	end
+end
+
+-- Shows the ghost as one cube per cell of the held shape's actual footprint at
+-- `anchor`, rotated by held.rotation -- the real shape, not a bounding box.
+local function showGhostAt(anchor)
+	local cells = GridUtil.coveredCells(held.shape, anchor, held.rotation)
+	ensureGhostCubes(#cells)
+	for i, cell in cells do
+		local cube = ghostCubes[i]
+		cube.CFrame = CFrame.new(GridUtil.cellToWorld(Config.BuildZoneOrigin, cell))
+		cube.Transparency = 0.4
+	end
+	for i = #cells + 1, #ghostCubes do
+		ghostCubes[i].Transparency = 1
+	end
 end
 
 -- Builds the single on-screen "Confirm Wall" button and parents it to PlayerGui.
@@ -149,21 +174,12 @@ end
 -- the grid. (Occupancy is the server's call; this is just the bounds check that
 -- decides whether to show the ghost / send the request.)
 local function footprintFits(anchor)
-	local span = GridUtil.spanForSize(held.size, held.rotated)
-	for _, c in GridUtil.coveredCells(anchor, span) do
+	for _, c in GridUtil.coveredCells(held.shape, anchor, held.rotation) do
 		if not GridUtil.isInside(c) then
 			return false
 		end
 	end
 	return true
-end
-
--- The world CFrame the ghost (and the placed block) should sit at for a given
--- anchor: footprint centre, turned 90deg if the held block is rotated.
-local function placementCFrame(anchor)
-	local span = GridUtil.spanForSize(held.size, held.rotated)
-	local centre = GridUtil.cellToWorld(Config.BuildZoneOrigin, GridUtil.footprintCentre(anchor, span))
-	return if held.rotated then CFrame.new(centre) * ROTATE_CF else CFrame.new(centre)
 end
 
 -- Fills `held` from a pile block Part and hides that Part on this client only
@@ -174,12 +190,14 @@ local function lift(part)
 		held.part.LocalTransparencyModifier = 0
 	end
 	local def = typeDefByName(part:GetAttribute("BlockType"))
+	if not def then
+		return
+	end
 	held = {
 		id = part:GetAttribute("BlockId"),
 		part = part,
-		size = part.Size,
-		rotatable = def ~= nil and def.Rotatable == true,
-		rotated = false,
+		shape = def.Shape,
+		rotation = 0,
 	}
 	part.LocalTransparencyModifier = 1
 end
@@ -190,30 +208,28 @@ local function drop()
 		held.part.LocalTransparencyModifier = 0
 	end
 	held = nil
-	ghost.Transparency = 1
+	hideGhost()
 end
 
 -- Runs every rendered frame while placement is active. With a block lifted,
 -- shows the ghost snapped to the hovered footprint; otherwise hides it.
 local function onRender()
 	if not held then
-		ghost.Transparency = 1
+		hideGhost()
 		return
 	end
 	local ray = cameraRay()
 	local anchor = ray and anchorUnderRay(ray)
 	if not anchor or not footprintFits(anchor) then
-		ghost.Transparency = 1
+		hideGhost()
 		return
 	end
-	ghost.Size = held.size
-	ghost.CFrame = placementCFrame(anchor)
-	ghost.Transparency = 0.6
+	showGhostAt(anchor)
 end
 
--- Handles keyboard and left-click while placement is active. R rotates a
--- rotatable held block, Q drops it. A left click either places the held block
--- on the hovered cell, lifts a pile block, or returns a wall block to its pile.
+-- Handles keyboard and left-click while placement is active. R cycles the held
+-- block's rotation, Q drops it. A left click either places the held block on
+-- the hovered cell, lifts a pile block, or returns a wall block to its pile.
 -- gameProcessed is true when the UI already consumed the input.
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
@@ -221,8 +237,8 @@ local function onInput(inputObject, gameProcessed)
 	end
 
 	if inputObject.KeyCode == Enum.KeyCode.R then
-		if held and held.rotatable then
-			held.rotated = not held.rotated
+		if held then
+			held.rotation = (held.rotation + 1) % 4
 		end
 		return
 	end
@@ -247,7 +263,7 @@ local function onInput(inputObject, gameProcessed)
 			Remotes.PlaceBlock:FireServer({
 				blockId = held.id,
 				cell = Vector2.new(anchor.X, anchor.Y),
-				rotated = held.rotated,
+				rotation = held.rotation,
 			})
 			drop()
 			return
@@ -272,10 +288,9 @@ local function onInput(inputObject, gameProcessed)
 end
 
 -- One-time setup, called once after the player leaves the title screen. Creates
--- the ghost and Confirm button up front and leaves them hidden; update() decides
--- when they appear.
+-- the Confirm button up front and leaves it hidden; the ghost-cube pool grows
+-- lazily on first use. update() decides when they appear.
 function BuildInput.start()
-	ghost = ghost or makeGhost()
 	confirmGui = confirmGui or makeConfirmGui()
 	confirmGui.Enabled = false
 end

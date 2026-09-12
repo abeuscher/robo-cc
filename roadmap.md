@@ -271,19 +271,55 @@ correctness-positive but feel-negative: "it is working and it is not fun at all 
 uniform rectangular block roster makes BUILD rote. That fed directly into Pass 5, inserted
 below.
 
-### Pass 5 — Irregular Blocks (L-Piece Pilot)
-Replaces the 6 Standard + 6 Wide rectangular roster with 12 identical L-shaped four-cell
-pieces (three in a row, one hanging off the bottom of one end), each a single `UnionOperation`
-so it moves as one rigid assembly. Generalizes the grid/placement pipeline from a rectangular
+### Pass 5 — Irregular Blocks (L-Piece Pilot) — **done (session 005)**
+Replaced the 6 Standard + 6 Wide rectangular roster with 12 identical L-shaped four-cell
+pieces (three in a row, one hanging below the row's left end), each a single `UnionOperation`
+so it moves as one rigid assembly. Generalized the grid/placement pipeline from a rectangular
 footprint + 2-state flip to an arbitrary multi-cell shape + full 4-state rotation (`GridUtil`,
 `BuildManager`, `BlockManager`, `BuildInput`). No new placement-time support rule — the
 challenge is purely physical: an unsupported overhang has to survive
-`BlockManager.releaseAll()` unanchoring it at ATTACK start. A test of whether irregular block
-shapes make the BUILD phase more interesting; more shapes follow if it does.
-**Done when:** two players can build a wall from only L-pieces at any of the 4 rotations,
-confirm, and watch gravity judge the result exactly as it does today for rectangular blocks.
+`BlockManager.releaseAll()` unanchoring it at ATTACK start. Each `UnionOperation`'s actual pivot
+offset is measured once at build time and reused on every reposition, since Roblox doesn't
+document where a fresh union's `.CFrame` lands relative to its own geometry.
+Scope extended during the session, from playtest feedback: the blocks were shorter than they
+were wide (`1.25×2.5×2.5`, the original spec-locked brick ratio); switched to cubes
+(`1.25×1.25×1.25`, settling on the smaller dimension rather than growing the larger one), with
+`GridSize` changed to derive from `BlockSize` instead of being separately hardcoded.
+**Done:** two players build a wall from only L-pieces at any of the 4 rotations, confirm, and
+gravity judges the result exactly as it did for rectangular blocks. Playtested green with two
+players. User's assessment went beyond correctness: the pilot "succeeds in making the game
+more interesting," but specifically credited "gravity turning on after placement" — not the
+L-shape itself — as the source. That distinction fed directly into Pass 6 and Pass 7, inserted
+below.
 
-### Pass 6 — Tune, then launch
+### Pass 6 — Piece Queue (Sequential Hand-off)
+Removes the physical pile (12 pieces pre-spawned into a stack, freely liftable and re-placeable
+in any order) in favor of a sequential hand-off: the Builder holds exactly one piece at a time
+and must place it before the next is issued. Shape stays the fixed L-piece from Pass 5 and
+count stays 12 — this pass is purely the interaction-model change (`BlockManager`,
+`BuildManager`, `Arena`, `BuildInput`, `Hud`), kept separate from Pass 7's shape-generation work
+so each half can be playtested in isolation. Open questions to settle at that session's Open
+Gate: whether any undo/rearrange survives (spec currently says pieces can be picked up and
+re-placed before confirming — the sequential model may override that), and whether Confirm Wall
+can end BUILD before the queue is exhausted.
+**Done when:** no pile geometry is visible, the Builder always holds exactly one piece, placing
+it issues the next, and the round still reaches `ConfirmBuild` / ATTACK correctly.
+
+### Pass 7 — Randomized Piece Generation
+Replaces the fixed L-piece with a per-placement randomly generated shape: 3-6 of the 9 cells in
+a 3×3 area filled at random (count and which cells both randomized). Cells that end up mutually
+adjacent fuse into one rigid `UnionOperation`; cells that end up isolated stay independently
+physical. Breaks the invariant every prior pass relied on — one placed piece has always been
+exactly one rigid body — so a single placement now needs to resolve into however many separate
+falling bodies its random connectivity produces at ATTACK start. Requires a network-contract
+change (the server generates the shape and has to hand it to the client — it can no longer live
+as a static named entry in `Config`). `GridUtil`'s shape/rotation math and `BuildInput`'s
+per-cell ghost pool (both built in Pass 5) are expected to take an arbitrary runtime-generated
+shape unchanged.
+**Done when:** each of the Builder's 9 pieces is a freshly randomized shape, places and rotates
+correctly, and at ATTACK start its connected clusters fall independently of its isolated cells.
+
+### Pass 8 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 

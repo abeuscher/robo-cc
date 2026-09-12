@@ -1,7 +1,7 @@
 -- Handles the BUILD-phase remotes. Every handler re-validates role, phase and
 -- limits -- the client sends intent only. Grid occupancy lives here and is
--- authoritative: one entry per covered cell, keyed by "col,row". A block can
--- cover several cells (Wide is 3 across, or 6 tall when rotated).
+-- authoritative: one entry per covered cell, keyed by "col,row". A block
+-- covers every cell of its shape, rotated 0-3 quarter-turns.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -46,7 +46,7 @@ local function notify()
 	MatchController.notifyBlocksRemaining(BlockManager.remainingByType())
 end
 
--- payload: { blockId: number, cell: Vector2 (bottom-left anchor), rotated: boolean }
+-- payload: { blockId: number, cell: Vector2 (bottom-left anchor), rotation: number (0-3) }
 local function onPlaceBlock(player, payload)
 	if not canBuild(player) then
 		return
@@ -69,10 +69,10 @@ local function onPlaceBlock(player, payload)
 		return
 	end
 
-	local rotated = payload.rotated == true and typeDef.Rotatable == true
+	local rotation = tonumber(payload.rotation) or 0
+	rotation = math.floor(rotation) % 4
 	local anchor = Vector2.new(math.floor(cell.X), math.floor(cell.Y))
-	local span = GridUtil.spanForSize(typeDef.Size, rotated)
-	local cells = GridUtil.coveredCells(anchor, span)
+	local cells = GridUtil.coveredCells(typeDef.Shape, anchor, rotation)
 
 	for _, c in cells do
 		if not GridUtil.isInside(c) then
@@ -89,8 +89,9 @@ local function onPlaceBlock(player, payload)
 		occupancy[key(c)] = blockId
 	end
 
+	local span = GridUtil.rotatedSpan(typeDef.Shape, rotation)
 	local centre = GridUtil.cellToWorld(Config.BuildZoneOrigin, GridUtil.footprintCentre(anchor, span))
-	BlockManager.moveToWall(blockId, centre, rotated)
+	BlockManager.moveToWall(blockId, centre, rotation)
 	notify()
 end
 

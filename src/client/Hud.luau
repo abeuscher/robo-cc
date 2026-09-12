@@ -106,11 +106,7 @@ local function render()
 
 	blocksLabel.Visible = inBuild
 	local remaining = state.blocksRemaining or {}
-	blocksLabel.Text = string.format(
-		"Blocks left  —  Standard: %d   Wide: %d",
-		remaining.Standard or 0,
-		remaining.Wide or 0
-	)
+	blocksLabel.Text = string.format("Blocks left  —  %d", remaining.LPiece or 0)
 
 	shotsLabel.Visible = inAttack
 	shotsLabel.Text = string.format("Shots left  —  %d", state.shotsRemaining or 0)
