@@ -1,33 +1,31 @@
 -- Handles FireWeapon. Validates the request (Attacker, ATTACK phase, a shot
--- available via MatchController.consumeShot), then spawns a server-simulated
--- projectile and steps it on Heartbeat: integrate its own velocity with a
--- per-weapon gravity scale, raycast last position -> new position against blocks
--- and the Princess, act on the first hit, despawn after ProjectileLifetime.
+-- available via MatchController.consumeShot), then spawns a real, unanchored
+-- ball per weapon and hands its flight, collision, and bounce entirely to
+-- Roblox's own physics engine -- no manual per-frame integration, no raycast
+-- hit probe. (Sessions 002-008 stepped an anchored, non-colliding "hit probe"
+-- part on Heartbeat instead, by design; session 009 replaces it with a real
+-- physics body so projectiles can persist and bounce after landing. A struck
+-- block's knockback is now real mass/velocity collision response, not a
+-- manual ApplyImpulse -- and a struck Princess is no longer reported here at
+-- all: PrincessMonitor watches her own tilt continuously instead.)
 --
--- The projectile Part is anchored and CanQuery/CanCollide false -- it is a
--- deterministic hit probe, not a physics body. It never touches blocks itself;
--- a hit applies an impulse and the projectile despawns. (The brief sketched an
--- unanchored, network-owned projectile; a manually stepped anchored part gives
--- the same server-authoritative raycast hits without an integrator to fight.)
+-- Every projectile fired this round is tracked, not just ones still moving,
+-- so a landed, at-rest ball still gets cleared at the next round's reset.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local Arena = require(script.Parent.Arena)
 local MatchController = require(script.Parent.MatchController)
-local PrincessMonitor = require(script.Parent.PrincessMonitor)
 
 local WeaponManager = {}
 
-local PROJECTILE_SIZE = Vector3.new(1.3, 1.3, 1.3)
 local PROJECTILE_COLOR = Color3.fromRGB(255, 170, 80)
 
--- [proj] = true. proj = { part, velocity, gravityScale, weapon, elapsed, params }
-local active = {}
+-- Every projectile spawned this round, for clearAll() to walk.
+local spawned = {}
 
 local function projectilesFolder()
 	local root = Arena.root()
@@ -41,50 +39,43 @@ local function projectilesFolder()
 	return folder
 end
 
--- Raycast filter: blocks, the Princess, and the arena boundary (ground +
--- perimeter walls) -- a standing block in the lane is hit before the Princess,
--- which is how the ballista "cannot arc over"; the boundary just catches a
--- miss instead of letting it fly until ProjectileLifetime. Markers are
--- ignored.
-local function hitParams()
-	local root = Arena.root()
-	local include = {}
-	local blocks = root:FindFirstChild("Blocks")
-	if blocks then
-		table.insert(include, blocks)
+local function projectileProps(weapon)
+	if weapon == "Ballista" then
+		return Config.BallistaProjectileSize,
+			Config.BallistaProjectileMass,
+			Config.BallistaProjectileFriction,
+			Config.BallistaProjectileRestitution
 	end
-	local princess = root:FindFirstChild("Princess")
-	if princess then
-		table.insert(include, princess)
-	end
-	local boundary = root:FindFirstChild("Boundary")
-	if boundary then
-		table.insert(include, boundary)
-	end
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = include
-	return params
+	return Config.CatapultProjectileSize,
+		Config.CatapultProjectileMass,
+		Config.CatapultProjectileFriction,
+		Config.CatapultProjectileRestitution
 end
 
-local function makeProjectile(origin)
+-- Builds the ball at the muzzle, still anchored -- caller unanchors, hands it
+-- server ownership, then sets its initial velocity. Density is derived from
+-- the weapon's configured mass and the ball's own volume, the same way
+-- BlockManager derives block density from BlockMass.
+local function makeProjectile(weapon, origin)
+	local size, mass, friction, restitution = projectileProps(weapon)
+
 	local part = Instance.new("Part")
 	part.Name = "Projectile"
 	part.Shape = Enum.PartType.Ball
-	part.Size = PROJECTILE_SIZE
+	part.Size = size
 	part.Color = PROJECTILE_COLOR
 	part.Material = Enum.Material.Neon
 	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
 	part.CastShadow = false
 	part.Position = origin
+	local volume = (4 / 3) * math.pi * (size.X / 2) ^ 3
+	part.CustomPhysicalProperties = PhysicalProperties.new(mass / volume, friction, restitution)
 
 	local a0 = Instance.new("Attachment")
-	a0.Position = Vector3.new(0, 0.45, 0)
+	a0.Position = Vector3.new(0, size.Y * 0.4, 0)
 	a0.Parent = part
 	local a1 = Instance.new("Attachment")
-	a1.Position = Vector3.new(0, -0.45, 0)
+	a1.Position = Vector3.new(0, -size.Y * 0.4, 0)
 	a1.Parent = part
 	local trail = Instance.new("Trail")
 	trail.Attachment0 = a0
@@ -128,66 +119,27 @@ local function launchVelocity(weapon, direction, force, angle)
 	return heading * (f * math.cos(a)) + Vector3.yAxis * (f * math.sin(a))
 end
 
--- First hit along the step. A struck block takes an impulse along the
--- projectile's travel direction, scaled by the weapon's impact constant and the
--- block's mass so heavier (Wide) blocks get the same shove. A hit on the
--- Princess herself is the spec's "direct hit" kill path.
-local function onHit(proj, result)
-	local part = result.Instance
-	if part:GetAttribute("BlockId") then
-		local impact = if proj.weapon == "Ballista" then Config.BallistaImpact else Config.CatapultImpact
-		local dir = proj.velocity.Magnitude > 0 and proj.velocity.Unit or Vector3.zAxis
-		part:ApplyImpulse(dir * impact * part.AssemblyMass)
-	elseif part.Name == "Princess" then
-		PrincessMonitor.reportDirectHit()
-	end
-end
-
-local function despawn(proj)
-	proj.part:Destroy()
-	active[proj] = nil
-end
-
--- Despawns every in-flight projectile. Registered with MatchController as a
--- round-reset hook so nothing carries into the next round.
+-- Destroys every projectile spawned this round, landed or not. Registered
+-- with MatchController as a round-reset hook so nothing carries into the next
+-- round.
 function WeaponManager.clearAll()
-	for proj in active do
-		despawn(proj)
+	for _, part in spawned do
+		part:Destroy()
 	end
+	spawned = {}
 end
 
-local function step(dt)
-	for proj in active do
-		proj.elapsed += dt
-		proj.velocity -= Vector3.yAxis * (Workspace.Gravity * proj.gravityScale * dt)
-
-		local from = proj.part.Position
-		local delta = proj.velocity * dt
-		local result = Workspace:Raycast(from, delta, proj.params)
-		if result then
-			onHit(proj, result)
-			despawn(proj)
-		else
-			proj.part.Position = from + delta
-			if proj.elapsed >= Config.ProjectileLifetime then
-				despawn(proj)
-			end
-		end
-	end
-end
-
--- Spawn and register a projectile. Caller has already validated and consumed the
--- shot.
+-- Spawn, unanchor, and launch a real projectile. Caller has already validated
+-- and consumed the shot. Unanchor before SetNetworkOwner(nil) (it errors on
+-- an anchored part) -- same ordering BlockManager.releaseAll() uses -- then
+-- set the initial velocity; Roblox's own physics engine owns everything after
+-- that.
 function WeaponManager.fire(weapon, direction, force, angle)
-	local proj = {
-		part = makeProjectile(Config.muzzleOrigin(weapon)),
-		velocity = launchVelocity(weapon, direction, force, angle),
-		gravityScale = if weapon == "Ballista" then Config.BallistaGravityScale else 1,
-		weapon = weapon,
-		elapsed = 0,
-		params = hitParams(),
-	}
-	active[proj] = true
+	local part = makeProjectile(weapon, Config.muzzleOrigin(weapon))
+	part.Anchored = false
+	part:SetNetworkOwner(nil)
+	part.AssemblyLinearVelocity = launchVelocity(weapon, direction, force, angle)
+	table.insert(spawned, part)
 end
 
 local function onFireWeapon(player, payload)
@@ -218,7 +170,6 @@ end
 
 function WeaponManager.start()
 	Remotes.FireWeapon.OnServerEvent:Connect(onFireWeapon)
-	RunService.Heartbeat:Connect(step)
 	MatchController.onRoundReset(WeaponManager.clearAll)
 end
 

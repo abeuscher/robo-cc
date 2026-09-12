@@ -3,8 +3,9 @@
 -- the catapult angle. Weapon is not a client choice -- state.weapon mirrors
 -- whichever weapon the server's fixed shot sequence currently mandates
 -- (Config.ShotSequence). A crosshair marks the predicted impact point (traced
--- with the same integrator the server steps) and turns green when that impact
--- is a wall block; a light dashed line sketches the path to it.
+-- by stepping the same initial velocity forward under gravity the real
+-- projectile launches with) and turns green when that impact is a wall
+-- block; a light dashed line sketches the path to it.
 --
 -- Both weapons fire off the same two-click launch meter (right side of
 -- screen). First click locks the current aim, hides the 3D targeting, and runs
@@ -42,7 +43,6 @@ local AIM_RANGE = 1000
 local TRACE_DT = 1 / 90
 local TRACE_MAX_STEPS = 360
 local TRACE_RANGE = 140
-local DASH_SEGMENTS = 10 -- cosmetic subdivision count for the ballista's straight dashed line
 
 -- One full ascent or descent of the launch meter: linear, no bounce. A press
 -- runs the bar up then back down once and stops -- it does not loop on its own;
@@ -327,28 +327,6 @@ local function currentAimDirection()
 	return target and (target - Config.muzzleOrigin(state.weapon)) or nil
 end
 
--- Ballista: BallistaGravityScale is tiny enough that the flight is effectively
--- a straight line, so this is one continuous raycast from the muzzle along the
--- horizontal aim -- it finds the exact point on whatever plane it hits and
--- rides it as the mouse moves, with no discretization at all. (A stepped
--- integrator trace here is what made ballista targeting feel like it was
--- snapping to a grid -- each step covers ~3-10 studs at muzzle speed, so the
--- hit point could only land on one of a handful of points along the wall.)
--- The dashed line is just evenly spaced points along the resolved segment,
--- purely cosmetic.
-local function straightTrace(origin, direction)
-	local flat = Vector3.new(direction.X, 0, direction.Z)
-	local heading = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zAxis
-	local far = origin + heading * TRACE_RANGE
-	local hit = Workspace:Raycast(origin, far - origin, traceParams())
-	local endPoint = hit and hit.Position or far
-	local points = {}
-	for i = 0, DASH_SEGMENTS do
-		table.insert(points, origin:Lerp(endPoint, i / DASH_SEGMENTS))
-	end
-	return points, endPoint, hit and hit.Instance or nil
-end
-
 -- Initial catapult velocity for a unit aim direction, force and angle. Mirrors
 -- WeaponManager.launchVelocity's catapult branch so the arc trace matches the
 -- shot; the server still re-clamps force / angle.
@@ -360,12 +338,24 @@ local function catapultVelocity(direction, force, angleDeg)
 	return heading * (f * math.cos(a)) + Vector3.yAxis * (f * math.sin(a))
 end
 
--- Catapult: gravity actually curves this one, so it still needs to step the
--- integrator, raycasting each step. Returns the traced points (for the dashed
--- line) plus where the shot would land and what it would hit (nil if the trace
--- runs out within TRACE_RANGE without a hit).
-local function arcTrace(origin, direction, force, angleDeg)
-	local velocity = catapultVelocity(direction, force, angleDeg)
+-- Initial ballista velocity for a unit aim direction and force. Mirrors
+-- WeaponManager.launchVelocity's ballista branch -- dead flat along the
+-- horizontal aim, speed clamped into the configured range.
+local function ballistaVelocity(direction, force)
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	local heading = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zAxis
+	local speed = math.clamp(force, Config.BallistaMinVelocity, Config.BallistaMuzzleVelocity)
+	return heading * speed
+end
+
+-- Steps an initial velocity forward under real gravity, raycasting each step,
+-- and returns the traced points (for the dashed line) plus where the shot
+-- would land and what it would hit (nil if the trace runs out within
+-- TRACE_RANGE without a hit). Both weapons are now real physics bodies under
+-- the same gravity (session 009) -- the ballista's shot really does drop,
+-- however subtly, so it needs the same stepped treatment the catapult's arc
+-- always did; only the initial velocity differs between them.
+local function stepTrace(origin, velocity)
 	local gravity = Workspace.Gravity
 	local params = traceParams()
 	local points = { origin }
@@ -390,9 +380,9 @@ end
 local function traceShot(weapon, direction, force, angleDeg)
 	local origin = Config.muzzleOrigin(weapon)
 	if weapon == "Ballista" then
-		return straightTrace(origin, direction)
+		return stepTrace(origin, ballistaVelocity(direction, force))
 	end
-	return arcTrace(origin, direction, force, angleDeg)
+	return stepTrace(origin, catapultVelocity(direction, force, angleDeg))
 end
 
 -- Traces a shot and updates the crosshair + dashed line from the result.

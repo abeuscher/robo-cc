@@ -2,8 +2,11 @@
 -- Attacker, positions their characters, and broadcasts StateChanged. Runs the
 -- full round loop: BUILD (ConfirmBuild releases the wall and grants
 -- ShotsPerTurn) -> ATTACK (each shot consumed through consumeShot(); a
--- PrincessMonitor kill can end the phase early too) -> RESOLVE (a settle beat,
--- then decide the round and broadcast RoundResult) -> SWAP (flip roles, reset
+-- PrincessMonitor kill can end the phase early too) -> RESOLVE (a settle beat
+-- so the last shot actually lands before deciding the round, then broadcast
+-- RoundResult and hold on it -- Config.RoundEndHoldTime, or sooner if a
+-- player fires ContinueRequested -- so the outcome and camera stay put
+-- instead of cutting straight to the next round) -> SWAP (flip roles, reset
 -- the arena/blocks/projectiles, back to BUILD) for Config.RoundsPerMatch
 -- rounds, then broadcast MatchResult and hold. Solo-permissive: with one
 -- player that player is the Builder and the BUILD loop stays fully usable
@@ -23,6 +26,7 @@ local MatchController = {}
 
 local joinOrder = {}
 local roundResetHooks = {}
+local pendingContinue = nil
 local state = {
 	phase = "BUILD",
 	roles = nil,
@@ -166,9 +170,29 @@ local function swapRoles()
 	print(string.format("[server] SWAP -> round %d", state.round))
 end
 
+-- Holds `advance` (swapRoles or finishMatch) until Config.RoundEndHoldTime
+-- elapses or a player fires ContinueRequested, whichever comes first -- so
+-- the outcome stays on screen (camera included, since AttackCamera now stays
+-- engaged through RESOLVE) instead of cutting straight to the next round.
+-- Guarded so the timer and a click can never both fire it.
+local function awaitContinue(advance)
+	local firedAlready = false
+	local function proceed()
+		if firedAlready then
+			return
+		end
+		firedAlready = true
+		pendingContinue = nil
+		advance()
+	end
+	pendingContinue = proceed
+	task.delay(Config.RoundEndHoldTime, proceed)
+end
+
 -- Decide the round once PrincessMonitor's state is settled: dead means the
--- Attacker wins, survived means the Builder does. Tallies the score, then
--- either ends the match or swaps roles into the next round.
+-- Attacker wins, survived means the Builder does. Tallies the score, reports
+-- the outcome, then holds (see awaitContinue) before ending the match or
+-- swapping roles into the next round.
 local function finishRound()
 	local dead = PrincessMonitor.isDead()
 	local reason = if dead then PrincessMonitor.reason() else "survived"
@@ -181,11 +205,7 @@ local function finishRound()
 	Remotes.RoundResult:FireAllClients({ winner = winnerRole, reason = reason })
 	print(string.format("[server] RESOLVE: round %d -> %s wins (%s)", state.round, winnerRole, reason))
 
-	if state.round >= Config.RoundsPerMatch then
-		finishMatch()
-	else
-		swapRoles()
-	end
+	awaitContinue(if state.round >= Config.RoundsPerMatch then finishMatch else swapRoles)
 end
 
 -- Enters RESOLVE and waits Config.ResolveSettleTime for physics to settle
@@ -277,6 +297,15 @@ function MatchController.start()
 	Remotes.StartRequested.OnServerEvent:Connect(function(player)
 		print(string.format("[server] StartRequested from %s (%d)", player.Name, player.UserId))
 		broadcast()
+	end)
+
+	-- Either player can skip the post-round hold early; a stray click once
+	-- nothing is pending (already advanced, or too early -- before the settle
+	-- delay's finishRound() has even run) is just a no-op.
+	Remotes.ContinueRequested.OnServerEvent:Connect(function()
+		if pendingContinue then
+			pendingContinue()
+		end
 	end)
 
 	startRound()

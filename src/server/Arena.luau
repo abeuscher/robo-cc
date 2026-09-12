@@ -2,9 +2,11 @@
 -- flat green ground spanning the whole play area (attacker side, the gap,
 -- builder side) ringed by grey boundary walls, marker parts a muted blue.
 -- reset() empties the folder; build() fills it -- called once at server start.
--- resetRound() is the lighter per-round path: it only repositions the Princess,
--- leaving the static geometry and the Blocks folder untouched (MatchController
--- also runs BlockManager.resetQueue() and clears live projectiles each round).
+-- resetRound() is the lighter per-round path: it re-anchors and repositions
+-- the Princess (session 009: ATTACK can leave her unanchored and tipped
+-- over), leaving the static geometry and the Blocks folder untouched
+-- (MatchController also runs BlockManager.resetQueue() and clears live
+-- projectiles each round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -15,6 +17,22 @@ local FOLDER_NAME = "ActiveRound"
 local STONE = Color3.fromRGB(128, 128, 128)
 local GRASS = Color3.fromRGB(76, 153, 51)
 local MARK = Color3.fromRGB(90, 110, 140)
+local PINK = Color3.fromRGB(255, 105, 180)
+
+-- Density from PrincessMass and her own volume, the same way BlockManager
+-- derives block density from BlockMass -- she's a real physical body now
+-- (session 009), not just a static target.
+local PRINCESS_PROPS = PhysicalProperties.new(
+	Config.PrincessMass / (Config.PrincessSize.X * Config.PrincessSize.Y * Config.PrincessSize.Z),
+	Config.PrincessFriction,
+	Config.PrincessRestitution
+)
+
+-- Density is irrelevant here -- the ground never moves -- only friction and
+-- restitution matter, so a landed projectile settles instead of rolling
+-- indefinitely (session 009 feedback: a rolling sphere has nothing to stop it
+-- once it's rolling without slipping, unless the surface itself grips it).
+local GROUND_PROPS = PhysicalProperties.new(1, Config.GroundFriction, Config.GroundRestitution)
 
 local Arena = {}
 
@@ -78,8 +96,11 @@ function Arena.build()
 
 	-- One continuous flat ground: attacker side, the gap, and builder side all
 	-- at the same elevation (spec: "roughly the same ground elevation"), ringed
-	-- by walls so a missed shot hits something. Both folded into a Boundary
-	-- folder that WeaponManager includes in its projectile raycast filter.
+	-- by walls so a missed shot physically collides with something instead of
+	-- flying into the void (session 009: a real projectile, so this is now
+	-- ordinary collision, not a raycast filter). Both folded into a Boundary
+	-- folder the client's aim-trace raycasts also see, since it's never
+	-- excluded.
 	local boundary = Instance.new("Folder")
 	boundary.Name = "Boundary"
 	boundary.Parent = root
@@ -89,7 +110,9 @@ function Arena.build()
 	local groundMaxZ = halfGap + Config.PlatformSize.Z
 	local groundSize = Vector3.new(Config.PlatformSize.X, Config.PlatformSize.Y, groundMaxZ - groundMinZ)
 
-	part("Ground", groundSize, Vector3.new(0, platformY, (groundMinZ + groundMaxZ) / 2), GRASS).Parent = boundary
+	local ground = part("Ground", groundSize, Vector3.new(0, platformY, (groundMinZ + groundMaxZ) / 2), GRASS)
+	ground.CustomPhysicalProperties = GROUND_PROPS
+	ground.Parent = boundary
 
 	local wallHeight = Config.BoundaryWallHeight
 	local wallThickness = Config.BoundaryWallThickness
@@ -139,7 +162,7 @@ function Arena.build()
 		).Parent = root
 	end
 
-	part(
+	local princess = part(
 		"Princess",
 		Config.PrincessSize,
 		Vector3.new(
@@ -147,18 +170,23 @@ function Arena.build()
 			Config.GroundLevel + Config.PrincessSize.Y / 2,
 			Config.BuildZoneOrigin.Z + Config.PrincessDistance
 		),
-		STONE
-	).Parent = root
+		PINK
+	)
+	princess.CustomPhysicalProperties = PRINCESS_PROPS
+	princess.Parent = root
 
 	return root
 end
 
--- Per-round reset: puts the Princess back at her fixed spawn point. She's
--- anchored, so there's no velocity to clear -- just position.
+-- Per-round reset: re-anchors the Princess (ATTACK can leave her unanchored
+-- and tipped over, session 009) and puts her back at her fixed spawn point,
+-- upright. Anchoring first means there's no leftover velocity to clear --
+-- PrincessMonitor.arm() unanchors her again at the next ATTACK start.
 function Arena.resetRound()
 	local root = Arena.root()
 	local princess = root:FindFirstChild("Princess")
 	if princess then
+		princess.Anchored = true
 		princess.CFrame = CFrame.new(
 			0,
 			Config.GroundLevel + Config.PrincessSize.Y / 2,

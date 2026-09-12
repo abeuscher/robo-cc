@@ -7,6 +7,7 @@ local ResultBanner = require(script:WaitForChild("ResultBanner"))
 local BuildInput = require(script:WaitForChild("BuildInput"))
 local AttackInput = require(script:WaitForChild("AttackInput"))
 local AttackCamera = require(script:WaitForChild("AttackCamera"))
+local BuildCamera = require(script:WaitForChild("BuildCamera"))
 local CameraIntro = require(script:WaitForChild("CameraIntro"))
 
 local live = false
@@ -20,6 +21,7 @@ Remotes.StateChanged.OnClientEvent:Connect(function(state)
 		BuildInput.update(state)
 		AttackInput.update(state)
 		AttackCamera.update(state)
+		BuildCamera.update(state)
 	end
 end)
 
@@ -34,6 +36,7 @@ local function begin()
 	BuildInput.start()
 	AttackInput.start()
 	AttackCamera.start()
+	BuildCamera.start()
 
 	if latestState then
 		Hud.update(latestState)
@@ -41,6 +44,7 @@ local function begin()
 		BuildInput.update(latestState)
 		AttackInput.update(latestState)
 		AttackCamera.update(latestState)
+		BuildCamera.update(latestState)
 	end
 end
 

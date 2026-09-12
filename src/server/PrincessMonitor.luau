@@ -1,11 +1,17 @@
--- Watches the Princess part for the spec's two kill paths: a direct projectile
--- hit (reported by WeaponManager, which already raycasts against her) and
--- contact from any block moving faster than Config.MovingBlockKillSpeed --
--- no owner check, so a Builder's own wall counts. Armed only while a kill
--- should count (ATTACK through the RESOLVE settle beat); MatchController
--- arms/disarms around each round.
+-- Watches the Princess for the win condition: once armed, checks her own
+-- tilt against world up every Heartbeat and calls her dead the moment that
+-- angle passes Config.PrincessTopplingAngle. She's a real unanchored body now
+-- (session 009) -- this replaces both of the prior kill paths (a raycast-
+-- reported direct hit from WeaponManager, and Touched by a fast-moving
+-- BlockId part) outright, not generalized: a block landing on her, a wall
+-- collapsing onto her (including the Builder's own), or a projectile strike
+-- all funnel through this one physical check, and none of them matter except
+-- whether she ends up tipped over. Armed only while a kill should count
+-- (ATTACK through the RESOLVE settle beat); MatchController arms/disarms
+-- around each round.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Arena = require(script.Parent.Arena)
@@ -13,18 +19,17 @@ local Arena = require(script.Parent.Arena)
 local PrincessMonitor = {}
 
 local dead = false
-local deathReason = nil
 local armed = false
 local deathCallback = nil
+local princess = nil
 
-local function killPrincess(reason)
+local function killPrincess()
 	if dead or not armed then
 		return
 	end
 	dead = true
-	deathReason = reason
 	if deathCallback then
-		deathCallback(reason)
+		deathCallback("toppled")
 	end
 end
 
@@ -34,10 +39,14 @@ function PrincessMonitor.onDeath(callback)
 	deathCallback = callback
 end
 
+-- ATTACK-phase transition. Unanchor first, then SetNetworkOwner(nil) (it
+-- errors on an anchored part) -- same ordering BlockManager.releaseAll() uses
+-- for blocks. She becomes a real physical target the moment ATTACK begins.
 function PrincessMonitor.arm()
 	dead = false
-	deathReason = nil
 	armed = true
+	princess.Anchored = false
+	princess:SetNetworkOwner(nil)
 end
 
 function PrincessMonitor.disarm()
@@ -49,29 +58,23 @@ function PrincessMonitor.isDead()
 end
 
 function PrincessMonitor.reason()
-	return deathReason
+	return if dead then "toppled" else nil
 end
 
--- Called by WeaponManager when a projectile's raycast lands on the Princess.
-function PrincessMonitor.reportDirectHit()
-	killPrincess("direct")
-end
-
-local function onTouched(otherPart)
+local function checkTilt()
 	if dead or not armed then
 		return
 	end
-	if not otherPart:GetAttribute("BlockId") then
-		return
-	end
-	if otherPart.AssemblyLinearVelocity.Magnitude > Config.MovingBlockKillSpeed then
-		killPrincess("crushed")
+	local upDot = princess.CFrame.UpVector:Dot(Vector3.yAxis)
+	local tiltAngle = math.deg(math.acos(math.clamp(upDot, -1, 1)))
+	if tiltAngle > Config.PrincessTopplingAngle then
+		killPrincess()
 	end
 end
 
 function PrincessMonitor.start()
-	local princess = Arena.root():WaitForChild("Princess")
-	princess.Touched:Connect(onTouched)
+	princess = Arena.root():WaitForChild("Princess")
+	RunService.Heartbeat:Connect(checkTilt)
 end
 
 return PrincessMonitor

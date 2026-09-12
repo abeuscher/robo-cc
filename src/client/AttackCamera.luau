@@ -2,8 +2,12 @@
 -- top-down (default, engaged as soon as the Attacker's turn begins),
 -- first-person (LockFirstPerson -- proven in session 002), and a 45-degree
 -- side view looking down the trench. The Builder keeps the normal camera.
--- Released back to Custom/Classic whenever the local player isn't the
--- ATTACK-phase Attacker.
+-- Stays engaged through RESOLVE too (session 009 feedback: the view used to
+-- snap back the instant the last shot fired, cutting away before it landed)
+-- -- roles don't swap until the round-end hold finishes, so the same player
+-- stays "the Attacker" for the whole window. Released back to Custom/Classic
+-- once the next round's BUILD phase arrives (or the local player isn't the
+-- Attacker at all).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -121,7 +125,7 @@ end
 function AttackCamera.start() end
 
 function AttackCamera.update(state)
-	local mine = state.phase == "ATTACK"
+	local mine = (state.phase == "ATTACK" or state.phase == "RESOLVE")
 		and state.roles ~= nil
 		and state.roles.attacker == player.UserId
 	if mine then

@@ -13,6 +13,7 @@ local EVENT_NAMES = {
 	"StateChanged",
 	"RoundResult",
 	"MatchResult",
+	"ContinueRequested",
 }
 
 local folder

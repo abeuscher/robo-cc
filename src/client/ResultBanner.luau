@@ -1,12 +1,20 @@
--- Round-result / match-result banner, centered top of screen. A round banner
--- fades out after a few seconds; the match banner stays up. Tracks
+-- Round-result / match-result banner, centered top of screen. Tracks
 -- StateChanged only to know the local player's role at the moment a
 -- RoundResult arrives -- roles flip on SWAP, which broadcasts its own
 -- StateChanged right after.
+--
+-- Session 009: the server now holds the round outcome on screen for
+-- Config.RoundEndHoldTime (camera included -- AttackCamera stays engaged
+-- through RESOLVE) instead of cutting straight to the next round, so neither
+-- banner auto-fades anymore; a "Continue" button lets either player skip the
+-- wait early via ContinueRequested. update() hides the whole banner once the
+-- next StateChanged moves the phase off RESOLVE -- which, for a MatchResult,
+-- never happens (the match loop stops advancing), so that banner stays up
+-- exactly as it always did. The button itself is only ever shown for a round
+-- result -- a MatchResult has nothing left to continue past.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
@@ -14,18 +22,18 @@ local player = Players.LocalPlayer
 
 local ResultBanner = {}
 
-local FADE_DELAY = 3
-local FADE_TIME = 1
-
 local REASON_TEXT = {
 	survived = "the Princess survived",
-	direct = "a direct hit",
-	crushed = "a falling block",
+	toppled = "knocked off her feet",
 }
 
-local gui, container, title, subtitle
+local gui, container, title, subtitle, continueButton
 local lastRoles = nil
-local fadeToken = 0
+
+local function onContinueClicked()
+	continueButton.Visible = false
+	Remotes.ContinueRequested:FireServer()
+end
 
 local function build()
 	if gui then
@@ -37,7 +45,7 @@ local function build()
 	gui.ResetOnSpawn = false
 
 	container = Instance.new("Frame")
-	container.Size = UDim2.fromOffset(560, 90)
+	container.Size = UDim2.fromOffset(560, 130)
 	container.AnchorPoint = Vector2.new(0.5, 0)
 	container.Position = UDim2.new(0.5, 0, 0, 40)
 	container.BackgroundTransparency = 1
@@ -63,28 +71,32 @@ local function build()
 	subtitle.Text = ""
 	subtitle.Parent = container
 
+	continueButton = Instance.new("TextButton")
+	continueButton.Name = "Continue"
+	continueButton.Size = UDim2.fromOffset(160, 36)
+	continueButton.AnchorPoint = Vector2.new(0.5, 0)
+	continueButton.Position = UDim2.new(0.5, 0, 0, 92)
+	continueButton.BackgroundColor3 = Color3.fromRGB(60, 90, 130)
+	continueButton.Font = Enum.Font.GothamBold
+	continueButton.TextSize = 20
+	continueButton.TextColor3 = Color3.fromRGB(240, 240, 245)
+	continueButton.Text = "Continue"
+	continueButton.Visible = false
+	continueButton.Parent = container
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = continueButton
+	continueButton.MouseButton1Click:Connect(onContinueClicked)
+
 	gui.Parent = player:WaitForChild("PlayerGui")
 end
 
-local function show(titleText, subtitleText, autoFade)
+local function show(titleText, subtitleText, showContinue)
 	build()
 	container.Visible = true
-	title.TextTransparency = 0
-	subtitle.TextTransparency = 0
 	title.Text = titleText
 	subtitle.Text = subtitleText
-
-	fadeToken += 1
-	local myToken = fadeToken
-	if autoFade then
-		task.delay(FADE_DELAY, function()
-			if myToken ~= fadeToken then
-				return
-			end
-			TweenService:Create(title, TweenInfo.new(FADE_TIME), { TextTransparency = 1 }):Play()
-			TweenService:Create(subtitle, TweenInfo.new(FADE_TIME), { TextTransparency = 1 }):Play()
-		end)
-	end
+	continueButton.Visible = showContinue
 end
 
 local function myRole()
@@ -133,6 +145,9 @@ end
 
 function ResultBanner.update(state)
 	lastRoles = state.roles
+	if state.phase ~= "RESOLVE" and container then
+		container.Visible = false
+	end
 end
 
 return ResultBanner

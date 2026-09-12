@@ -355,25 +355,85 @@ cells. Playtested green with two players; user confirmed the core mechanic direc
 do drop when they are single inside the grid as separate entities") and assessed it as improving
 the BUILD phase "quite a bit."
 
-### Pass 9 — Physical Projectiles
-Replaces the raycast-stepped, anchored "hit probe" projectile (deliberately not a physics body,
-per `WeaponManager`'s own design) with a real, persistent physical ball per weapon — the
-catapult's heavy with a little bounce, the ballista's light and fast (differentiated by mass and
-speed, not shape, since a puck risks tumbling unpredictably under real physics and a ball
-doesn't). Reduces both weapons' force/impact for balance, replacing the manual `ApplyImpulse`
-knockback with real collision physics. Separately but in the same pass, changes the Princess's
-win condition from a touch/velocity check to a purely physical one: she becomes a real unanchored
-body for the first time, and dies only when knocked onto her side (a single continuous tilt-angle
-check), replacing both of today's kill paths (a raycast-reported direct hit, and `Touched` by a
-fast-moving `BlockId` part) rather than generalizing them. Two independent balance levers in one
-session — projectile force and the Princess's own toppling threshold — deliberately not
-conflated with the "make ATTACK more interesting" half of the goal (permanence and shape).
-**Done when:** the catapult ball bounces and settles, the ballista ball reads as distinctly
-lighter/faster, both persist after landing, a wall takes more hits to bring down than today, and
-the Princess only goes down when actually toppled — a graze that would have killed her before no
-longer does.
+### Pass 9 — Physical Projectiles — **done (session 009)**
+Replaced the raycast-stepped, anchored "hit probe" projectile (deliberately not a physics body,
+per `WeaponManager`'s own prior design) with a real, persistent physical ball per weapon —
+unanchored, `SetNetworkOwner(nil)`'d, launched with one initial `AssemblyLinearVelocity` and left
+entirely to Roblox's own physics from there (no more manual per-frame integration or raycast hit
+probe). The catapult's ball is heavier with real bounce (`CatapultProjectileRestitution` above the
+block's own); the ballista's is light and fast — mass and speed differentiate the two, not shape,
+since a puck risks tumbling unpredictably under real physics and a ball doesn't. Manual
+`ApplyImpulse` knockback is gone; a struck block now takes real mass/velocity collision response.
+Separately but in the same pass, the Princess's win condition changed from a touch/velocity check
+to a purely physical one: she's a real unanchored body for the first time (`PrincessMonitor.arm()`
+unanchors her, mirroring `BlockManager.releaseAll()`'s ordering), and dies only when a continuous
+`Heartbeat` tilt check against `Config.PrincessTopplingAngle` passes — replacing both prior kill
+paths (a raycast-reported direct hit, and `Touched` by a fast `BlockId` part) outright, not
+generalizing them. `Types.RoundResult.reason` narrowed to `"survived" | "toppled"`.
+Scope grew substantially past the original brief across several playtest rounds: (1) a real ball
+rolls forever on a frictionless surface once it's rolling without slipping, so `Ground` got its own
+`CustomPhysicalProperties` (`GroundFriction`/`GroundRestitution`) to settle it in reasonable time.
+(2) The Attacker's camera used to snap away and the round outcome banner appear the instant the
+last shot *fired*, cutting away before it landed — `AttackCamera` now stays engaged through
+RESOLVE (roles don't swap until the round-end hold finishes), `MatchController` holds the outcome
+on screen for `Config.RoundEndHoldTime` (a new `ContinueRequested` remote lets either player skip
+early via a "Continue" button on `ResultBanner`), and `ResolveSettleTime` grew 1.5s→3s so a slow
+bouncing shot has time to actually land before the round is decided. (3) A `BuildCamera` module was
+added to snap the Builder's camera to a consistent view at the start of every BUILD phase, since a
+round that started as Attacker left the camera wherever `AttackCamera` last pointed it. (4) Several
+balance passes, each a pure `Config`/`Arena` change: `PrincessDistance` doubled (14→28, with the
+builder platform's own depth now deriving from it so she stays clear of the back wall regardless of
+how far back she sits); the build zone widened to span the *entire* platform width edge-to-edge
+(previously a `PLATFORM_MARGIN`-wide side lane let a ballista shot bounce off the boundary walls
+and reach the Princess without ever passing through the wall — the Builder had no way to block
+that); `PieceCount` dropped 9→6 then back up to 8, and `BlockSize` tripled (1.25→3.75 per side), as
+a deliberate experiment in the opposite balance direction; the Princess recolored pink; and
+`PrincessTopplingAngle` raised 60°→78° once playtesting showed a single clean catapult hit was
+enough to finish her the instant the wall was down.
+The session closed with a design conversation (informed by quick web research into the source
+board game's own rules — warriors as a defense layer, one-action-per-turn alternation, plural win
+conditions, attrition-with-recovery) that produced a 4-session follow-on plan: a physical guard
+piece shielding the Princess (Pass 10), a Builder-triggered timed shield ability (Pass 11), a
+points-based scoring system replacing binary win/loss (Pass 12), and spin/trajectory rework for the
+weapons (Pass 13) — displacing "Tune, then launch" to Pass 14.
+**Done:** the catapult ball visibly bounces and settles, the ballista ball reads as distinctly
+lighter/faster, both persist after landing, a wall takes more hits to bring down than before, and
+the Princess only goes down when actually toppled. Playtested green across many rounds of
+iteration; user's final assessment was that the core physical-projectile mechanic and the wall
+scaling experiment were "pretty challenging on both sides," with the remaining balance problem
+(a two-shot catapult combo — break the wall, then snipe the exposed Princess) identified precisely
+enough to scope the next four sessions around it.
 
-### Pass 10 — Tune, then launch
+### Pass 10 — Guard Piece
+Adds a physical obstacle between the wall and the Princess so a broken wall doesn't leave her a
+free, unobstructed target — directly answers session 009's closing finding that one clean catapult
+hit through a gap in a collapsed wall was enough to end the round. Inspired by the source board
+game's warriors: a second layer of defense, separate from (and behind) the wall itself.
+
+### Pass 11 — Builder's Timed Shield
+A Builder-triggered ability, once per round: a small protective dome over the Princess for about
+half a second, timed by the Builder to an incoming shot rather than left up passively. Requires a
+new remote, server-side one-use/cooldown enforcement, and client input/UI — the first piece of
+Builder agency during ATTACK, which today is pure spectation once the wall is confirmed.
+
+### Pass 12 — Scoring & Points
+Replaces the binary round win/loss with a points comparison: the Builder is scored on how many wall
+pieces remain (not toppled off the platform) at round end, plus whether the Princess fell — tuned
+so a Princess kill is worth roughly a quarter of the maximum possible wall-piece score, so an
+Attacker has a genuine reason to grind down the wall for points rather than only ever hunting the
+Princess. Changes `Types.RoundResult`'s data shape, `MatchController`'s scoring, and `ResultBanner`
+— open design questions (what counts as a surviving "piece" once one piece can split into several
+independent bodies; whether "not toppled off the base" means still on the platform at all versus
+still standing) get resolved at this session's own Open Gate.
+
+### Pass 13 — Weapon Spin & Trajectory/Bounce
+Adds spin to firing (harder to aim accurately) and reworks trajectory/bounce feel for one or both
+weapons — likely real angular velocity at launch plus a per-frame Magnus-style force to actually
+curve the arc, not a cosmetic-only effect. Scoped separately from Pass 10-12 since it's real
+physics feature work with its own tuning cycle, harder to get feeling right than anything built so
+far.
+
+### Pass 14 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 
@@ -392,11 +452,14 @@ validation layer on `BuildManager`, not a new mechanic.
 
 1. **Princess distance from build zone** — the one value everything keys off. Get a
    well-aimed catapult shot clearing a short wall but struggling over a tall one.
-2. **Shots per turn (6)** — sets difficulty.
-3. **Block mass + friction** — whether a base hit slides one block and drops the stack
-   straight down, or scatters it.
-4. **Ballista muzzle velocity / gravity scale**, then **catapult force + angle range**.
-5. `MovingBlockKillSpeed` and `CatapultImpact` last, to taste.
+2. **Shot sequence** — sets difficulty.
+3. **Block mass + friction**, and **`BlockSize`/`PieceCount`** (session 009 experiment: fewer,
+   larger blocks) — whether a base hit slides one block and drops the stack straight down, or
+   scatters it, and how much of the wall a single hit can plausibly take out.
+4. **Ballista muzzle velocity**, then **catapult force + angle range**, then each weapon's
+   **projectile mass/friction/restitution** (session 009: real physics bodies, not an abstract
+   impact constant).
+5. **`PrincessTopplingAngle`** and **`GroundFriction`/`GroundRestitution`** last, to taste.
 
 If one build strategy dominates, change numbers here — not mechanics.
 

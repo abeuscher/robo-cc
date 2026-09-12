@@ -41,7 +41,7 @@ export type StatePayload = {
 
 export type RoundResult = {
 	winner: Role,
-	reason: "survived" | "direct" | "crushed",
+	reason: "survived" | "toppled",
 }
 
 export type MatchResult = {
