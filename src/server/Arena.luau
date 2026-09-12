@@ -18,6 +18,7 @@ local STONE = Color3.fromRGB(128, 128, 128)
 local GRASS = Color3.fromRGB(76, 153, 51)
 local MARK = Color3.fromRGB(90, 110, 140)
 local PINK = Color3.fromRGB(255, 105, 180)
+local SLATE = Color3.fromRGB(80, 80, 95)
 
 -- Density from PrincessMass and her own volume, the same way BlockManager
 -- derives block density from BlockMass -- she's a real physical body now
@@ -33,6 +34,12 @@ local PRINCESS_PROPS = PhysicalProperties.new(
 -- indefinitely (session 009 feedback: a rolling sphere has nothing to stop it
 -- once it's rolling without slipping, unless the surface itself grips it).
 local GROUND_PROPS = PhysicalProperties.new(1, Config.GroundFriction, Config.GroundRestitution)
+
+-- The guard piece (session 010) behaves exactly like a wall block -- same
+-- density (BlockMass at BlockSize's own volume, same formula BlockManager
+-- uses), friction, and restitution, just a bigger fixed footprint.
+local BLOCK_DENSITY = Config.BlockMass / (Config.BlockSize.X * Config.BlockSize.Y * Config.BlockSize.Z)
+local GUARD_PROPS = PhysicalProperties.new(BLOCK_DENSITY, Config.BlockFriction, Config.BlockRestitution)
 
 local Arena = {}
 
@@ -175,13 +182,28 @@ function Arena.build()
 	princess.CustomPhysicalProperties = PRINCESS_PROPS
 	princess.Parent = root
 
+	local guard = part(
+		"Guard",
+		Config.GuardSize,
+		Vector3.new(
+			0,
+			Config.GroundLevel + Config.GuardSize.Y / 2,
+			Config.BuildZoneOrigin.Z + Config.GuardDistance
+		),
+		SLATE
+	)
+	guard.CustomPhysicalProperties = GUARD_PROPS
+	guard.Parent = root
+
 	return root
 end
 
 -- Per-round reset: re-anchors the Princess (ATTACK can leave her unanchored
 -- and tipped over, session 009) and puts her back at her fixed spawn point,
 -- upright. Anchoring first means there's no leftover velocity to clear --
--- PrincessMonitor.arm() unanchors her again at the next ATTACK start.
+-- PrincessMonitor.arm() unanchors her again at the next ATTACK start. The
+-- guard piece (session 010) gets the same treatment -- ATTACK can leave it
+-- unanchored and knocked wherever it ended up.
 function Arena.resetRound()
 	local root = Arena.root()
 	local princess = root:FindFirstChild("Princess")
@@ -193,7 +215,29 @@ function Arena.resetRound()
 			Config.BuildZoneOrigin.Z + Config.PrincessDistance
 		)
 	end
+	local guard = root:FindFirstChild("Guard")
+	if guard then
+		guard.Anchored = true
+		guard.CFrame = CFrame.new(
+			0,
+			Config.GroundLevel + Config.GuardSize.Y / 2,
+			Config.BuildZoneOrigin.Z + Config.GuardDistance
+		)
+	end
 	return root
+end
+
+-- ATTACK-phase transition. Unanchor first, then SetNetworkOwner(nil) (it
+-- errors on an anchored part) -- same ordering BlockManager.releaseAll() and
+-- PrincessMonitor.arm() use. Makes the guard a real, server-owned physics
+-- body so it can actually be knocked down or aside, exactly like a wall
+-- block -- no special-cased "destroyed" state.
+function Arena.releaseGuard()
+	local guard = Arena.root():FindFirstChild("Guard")
+	if guard then
+		guard.Anchored = false
+		guard:SetNetworkOwner(nil)
+	end
 end
 
 return Arena

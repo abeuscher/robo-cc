@@ -34,6 +34,15 @@ local BUILD_ZONE_ORIGIN_Z = GAP_WIDTH / 2 + BLOCK_SIZE.Z / 2 -- world Z of the b
 local PRINCESS_DISTANCE = 28
 local PRINCESS_CLEARANCE = 10 -- platform kept behind her, before the boundary wall
 
+-- Guard piece (session 010): a second, fixed physical obstacle between the
+-- wall and the Princess, so a broken wall doesn't leave her a free target.
+-- Sized bigger than her own footprint (below, in Arena) so a shot landing on
+-- or near her is likely to meet the guard first. Sits GUARD_CLEARANCE studs
+-- in front of her, on the same Z axis PrincessDistance already uses.
+local GUARD_SIZE = Vector3.new(BLOCK_SIZE.X * 1.5, BLOCK_SIZE.Y * 1.5, BLOCK_SIZE.Z)
+local GUARD_CLEARANCE = 6
+local GUARD_DISTANCE = PRINCESS_DISTANCE - GUARD_CLEARANCE
+
 -- Fixed, scripted shot order -- the Attacker no longer chooses a weapon
 -- (session 007, overrides spec's free choice). ShotsPerTurn derives from this
 -- so the two can never drift apart.
@@ -75,6 +84,13 @@ local Config = {
 	PrincessFriction = 0.7, -- resists sliding, but nothing here resists tipping
 	PrincessRestitution = 0.1,
 	PrincessTopplingAngle = 78, -- degrees from upright before she counts as knocked over (raised from 60 -- session 009 balance experiment: one clean hit was enough to finish her the instant the wall was gone)
+
+	-- Guard piece (session 010): a fixed second obstacle, not a Builder-placed
+	-- piece. Reuses BlockFriction/BlockRestitution and the wall's own density
+	-- (in Arena) so it behaves exactly like a wall block -- knock it far
+	-- enough and it's out of the way, no special-cased "destroyed" state.
+	GuardSize = GUARD_SIZE,
+	GuardDistance = GUARD_DISTANCE, -- studs behind the build zone, same axis as PrincessDistance
 
 	-- Build grid (a vertical plane: X = columns, Y = rows, fixed world Z)
 	GridSize = Vector2.new(BLOCK_SIZE.X, BLOCK_SIZE.Y), -- column pitch, row pitch -- always the sub-cube's own footprint

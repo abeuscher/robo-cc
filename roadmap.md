@@ -404,11 +404,24 @@ scaling experiment were "pretty challenging on both sides," with the remaining b
 (a two-shot catapult combo — break the wall, then snipe the exposed Princess) identified precisely
 enough to scope the next four sessions around it.
 
-### Pass 10 — Guard Piece
-Adds a physical obstacle between the wall and the Princess so a broken wall doesn't leave her a
-free, unobstructed target — directly answers session 009's closing finding that one clean catapult
-hit through a gap in a collapsed wall was enough to end the round. Inspired by the source board
-game's warriors: a second layer of defense, separate from (and behind) the wall itself.
+### Pass 10 — Guard Piece — **done (session 010)**
+Added a second, fixed physical obstacle (`Guard`, a plain slate-grey box) between the wall and the
+Princess, sitting a fixed 6 studs in front of her (`Config.GuardDistance`, derived from
+`PrincessDistance`) — directly answers session 009's closing finding that one clean catapult hit
+through a gap in a collapsed wall was enough to end the round. Inspired by the source board game's
+warriors: a second layer of defense, separate from (and behind) the wall itself. Server-spawned,
+not Builder-placed; both Open Gate questions were settled toward the simpler option: it behaves
+exactly like a wall block (no special-cased "destroyed" state, reuses `BlockFriction`/
+`BlockRestitution` and the wall's own density formula) and uses a plain box shape, parented outside
+the `Blocks` folder so `WeaponManager` and `AttackInput`'s raycasts pick it up with zero code
+changes, same as any other solid part in the arena. Unanchored into real physics at ATTACK start
+(`Arena.releaseGuard()`, called from `MatchController.beginAttack()` alongside
+`BlockManager.releaseAll()` and `PrincessMonitor.arm()`) and re-anchored/repositioned each round in
+`Arena.resetRound()`, mirroring the Princess's own handling throughout.
+**Done:** the guard spawns between the wall and the Princess every round, becomes a real physical
+body at ATTACK start, and participates in ordinary collision and raycasts with no changes needed
+outside `Config`/`Arena`/`MatchController`. Playtested with two players; user's assessment was
+"Better."
 
 ### Pass 11 — Builder's Timed Shield
 A Builder-triggered ability, once per round: a small protective dome over the Princess for about

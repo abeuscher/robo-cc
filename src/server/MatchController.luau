@@ -225,6 +225,7 @@ local function beginAttack()
 	state.phase = "ATTACK"
 	state.shotsRemaining = Config.ShotsPerTurn
 	BlockManager.releaseAll()
+	Arena.releaseGuard()
 	PrincessMonitor.arm()
 	broadcast()
 	print(string.format("[server] BUILD confirmed, phase -> ATTACK (%d shots)", state.shotsRemaining))
