@@ -35,6 +35,7 @@ export type StatePayload = {
 	shotsRemaining: number,
 	currentWeapon: Weapon?, -- mandated weapon for the shot about to fire; nil outside ATTACK
 	currentShape: PieceShape?, -- the held piece's shape; nil outside BUILD
+	shieldAvailable: boolean, -- whether the Builder's once-per-round shield is still unused
 	round: number,
 	score: Score,
 }

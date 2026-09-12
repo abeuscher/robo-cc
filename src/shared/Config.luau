@@ -9,7 +9,7 @@ local BLOCK_SIZE = Vector3.new(3.75, 3.75, 3.75) -- 3x the original 1.25 (sessio
 local PIECE_GRID_SIZE = 3 -- the cell area a piece's shape is drawn from (3x3)
 local PIECE_MIN_CELLS = 3
 local PIECE_MAX_CELLS = 6
-local PIECE_COUNT = 8 -- reduced from 9 to 6, then back up 2 (session 009 balance experiments)
+local PIECE_COUNT = 10 -- reduced from 9 to 6, then back up to 8 (session 009), then to 10 (session 011 playtest feedback)
 
 -- The trench: the vertical opening the Builder's wall must fill. Sized off
 -- the worst case, since the static geometry can't resize itself round to
@@ -42,6 +42,18 @@ local PRINCESS_CLEARANCE = 10 -- platform kept behind her, before the boundary w
 local GUARD_SIZE = Vector3.new(BLOCK_SIZE.X * 1.5, BLOCK_SIZE.Y * 1.5, BLOCK_SIZE.Z)
 local GUARD_CLEARANCE = 6
 local GUARD_DISTANCE = PRINCESS_DISTANCE - GUARD_CLEARANCE
+
+-- Builder's timed shield (session 011): a once-per-round, Builder-activated
+-- physical barrier during ATTACK, timed against an incoming shot rather than
+-- left up passively. Sits just in front of the Princess -- closer to her than
+-- the guard, so it's a last line of defense if the guard's already been
+-- knocked aside. Unlike the guard, it never unanchors: an unanchored shield
+-- could itself get shoved into the Princess by a heavy hit and defeat the
+-- point, so staying anchored for its whole (short) life is a deliberate,
+-- scoped exception to "everything is real physics."
+local SHIELD_SIZE = Vector3.new(BLOCK_SIZE.X * 3, BLOCK_SIZE.Y * 2.5, BLOCK_SIZE.Z)
+local SHIELD_CLEARANCE = 3
+local SHIELD_DISTANCE = PRINCESS_DISTANCE - SHIELD_CLEARANCE
 
 -- Fixed, scripted shot order -- the Attacker no longer chooses a weapon
 -- (session 007, overrides spec's free choice). ShotsPerTurn derives from this
@@ -92,6 +104,13 @@ local Config = {
 	GuardSize = GUARD_SIZE,
 	GuardDistance = GUARD_DISTANCE, -- studs behind the build zone, same axis as PrincessDistance
 
+	-- Builder shield (session 011): a timed physical barrier, once per round,
+	-- Builder-activated during ATTACK. Stays anchored for its whole duration --
+	-- see note above SHIELD_SIZE.
+	ShieldSize = SHIELD_SIZE,
+	ShieldDistance = SHIELD_DISTANCE, -- studs behind the build zone, same axis as PrincessDistance/GuardDistance
+	ShieldDuration = 0.5, -- seconds the shield stays up once activated
+
 	-- Build grid (a vertical plane: X = columns, Y = rows, fixed world Z)
 	GridSize = Vector2.new(BLOCK_SIZE.X, BLOCK_SIZE.Y), -- column pitch, row pitch -- always the sub-cube's own footprint
 	BuildZoneSize = BUILD_ZONE_SIZE, -- studs, width x height -- the trench, sized off the block totals
@@ -121,8 +140,13 @@ local Config = {
 	-- 0.1) so it visibly settles instead of sticking dead on impact.
 	CatapultMinForce = 70,
 	CatapultMaxForce = 120, -- reduced from 150 (session 009) -- less force now real mass carries the impact
-	CatapultMinAngle = 20, -- degrees
-	CatapultMaxAngle = 70,
+	-- Angle range shifted down (session 011 playtest feedback: walls couldn't
+	-- be built tall enough to matter against the old 20-70 range). For a fixed
+	-- target range, arc height scales with tan(angle), so this drops the
+	-- default midpoint from 45deg (tan 1.0) to 32.5deg (tan ~0.64) -- roughly
+	-- two-thirds the peak height at the same distance.
+	CatapultMinAngle = 15, -- degrees
+	CatapultMaxAngle = 50,
 	CatapultProjectileSize = Vector3.new(1.6, 1.6, 1.6),
 	CatapultProjectileMass = 35, -- heavy relative to the ballista's ball
 	CatapultProjectileFriction = 0.5,

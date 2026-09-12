@@ -423,11 +423,36 @@ body at ATTACK start, and participates in ordinary collision and raycasts with n
 outside `Config`/`Arena`/`MatchController`. Playtested with two players; user's assessment was
 "Better."
 
-### Pass 11 — Builder's Timed Shield
-A Builder-triggered ability, once per round: a small protective dome over the Princess for about
-half a second, timed by the Builder to an incoming shot rather than left up passively. Requires a
-new remote, server-side one-use/cooldown enforcement, and client input/UI — the first piece of
-Builder agency during ATTACK, which today is pure spectation once the wall is confirmed.
+### Pass 11 — Builder's Timed Shield — **done (session 011)**
+Added a once-per-round, Builder-activated timed physical barrier during ATTACK
+(`Config.ShieldSize`/`ShieldDistance`/`ShieldDuration`, a new `ActivateShield` remote) — the first
+piece of Builder agency after `ConfirmBuild`, which until now was pure spectation. `MatchController`
+owns the one-use flag and validation (`state.shieldAvailable`, `useShield()`), mirroring the
+existing shots-remaining split with `WeaponManager`; a new `ShieldManager` owns only the physical
+part itself — spawn, position (3 studs in front of the Princess, closer than the session-010 guard
+so it's a last line of defense if the guard's already down), and despawn after
+`Config.ShieldDuration`. Both Open Gate questions on the mechanism were settled toward the physical
+object: a plain anchored box (no `PrincessMonitor` changes needed, consistent with sessions 009-010's
+move away from scripted hit rules), and — unlike the guard — it never unanchors, a deliberate,
+scoped exception to "everything is real physics" so a heavy hit can't shove the shield itself into
+the Princess. The third open question (a dedicated Builder camera for ATTACK) resolved to "not
+needed": `BuildCamera` never forces the Builder's camera away from `Custom`, and
+`MatchController.standFor()` already stands the Builder just behind their own wall facing the
+attacker, so free-look alone gives them a usable view. New client module `ShieldInput` (`F` key)
+mirrors `AttackInput`'s activate/deactivate lifecycle; `Hud` gained a shield-ready/used readout for
+the Builder during ATTACK.
+Scope extended during the session, from playtest feedback unrelated to the shield itself: the
+catapult's angle range moved from 20-70° to 15-50° (`Config.CatapultMinAngle`/`MaxAngle`) — walls
+couldn't be built tall enough to block the old range's high arcs; since arc height for a fixed
+target range scales with `tan(angle)`, this drops the default midpoint from 45° to 32.5°, roughly
+two-thirds the peak height at the same distance. `Config.PieceCount` also moved 8 → 10, a follow-up
+request for more blocks per round.
+**Done:** the Builder can activate the shield once per round during ATTACK via `F`, a HUD readout
+shows whether it's still available, and no shield part lingers between rounds. Not independently
+confirmed via playtest whether a well-timed activation actually blocks a shot or whether the
+one-use limit was exercised twice in the same round — the session's playtest conversation focused
+on the catapult retune instead. User's assessment after the retune was "Better," then "Okay.
+Better." after a follow-up round.
 
 ### Pass 12 — Scoring & Points
 Replaces the binary round win/loss with a points comparison: the Builder is scored on how many wall

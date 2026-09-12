@@ -32,6 +32,7 @@ local state = {
 	roles = nil,
 	blocksRemaining = Config.PieceCount,
 	shotsRemaining = 0,
+	shieldAvailable = true,
 	round = 1,
 	score = {}, -- UserId -> rounds won
 }
@@ -75,6 +76,7 @@ local function broadcast()
 		shotsRemaining = state.shotsRemaining,
 		currentWeapon = currentWeapon(),
 		currentShape = currentShape(),
+		shieldAvailable = state.shieldAvailable,
 		round = state.round,
 		score = state.score,
 	})
@@ -142,6 +144,7 @@ local function startRound()
 	runRoundResetHooks()
 	BlockManager.resetQueue()
 	state.blocksRemaining = Config.PieceCount
+	state.shieldAvailable = true
 	state.phase = "BUILD"
 	broadcast()
 	repositionAll()
@@ -264,6 +267,19 @@ function MatchController.consumeShot()
 	if state.shotsRemaining == 0 then
 		beginResolve()
 	end
+	return true
+end
+
+-- Spend the Builder's once-per-round shield. Returns false (nothing happens)
+-- outside ATTACK, for anyone but the Builder, or once it's already used this
+-- round. Callers must check this before actually spawning the shield object --
+-- mirrors consumeShot()'s role as the single source of truth on the count.
+function MatchController.useShield(player)
+	if state.phase ~= "ATTACK" or not MatchController.isBuilder(player) or not state.shieldAvailable then
+		return false
+	end
+	state.shieldAvailable = false
+	broadcast()
 	return true
 end
 

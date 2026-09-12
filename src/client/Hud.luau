@@ -14,7 +14,7 @@ local player = Players.LocalPlayer
 
 local Hud = {}
 
-local gui, roleLabel, phaseLabel, roundLabel, scoreLabel, blocksLabel, shotsLabel, weaponLabel, hintLabel, waitingLabel
+local gui, roleLabel, phaseLabel, roundLabel, scoreLabel, blocksLabel, shotsLabel, weaponLabel, shieldLabel, hintLabel, waitingLabel
 
 local lastState = nil
 local readout = { weapon = "Ballista", angle = 0 }
@@ -59,6 +59,7 @@ function Hud.start()
 	blocksLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
 	shotsLabel = label(container, 20, Color3.fromRGB(200, 205, 215))
 	weaponLabel = label(container, 18, Color3.fromRGB(255, 210, 120))
+	shieldLabel = label(container, 18, Color3.fromRGB(120, 190, 255))
 	hintLabel = label(container, 15, Color3.fromRGB(150, 155, 165))
 	hintLabel.Size = UDim2.new(1, 0, 0, 36)
 	hintLabel.TextWrapped = true
@@ -117,11 +118,18 @@ local function render()
 		weaponLabel.Text = "Ballista  ·  click, click to launch"
 	end
 
-	local hintForBuilder = inBuild and myRole == "Builder"
+	local hintForBuilderBuild = inBuild and myRole == "Builder"
+	local hintForBuilderAttack = inAttack and myRole == "Builder"
 	local hintForAttacker = inAttack and myRole == "Attacker"
-	hintLabel.Visible = hintForBuilder or hintForAttacker
+
+	shieldLabel.Visible = hintForBuilderAttack
+	shieldLabel.Text = if state.shieldAvailable ~= false then "Shield ready  ·  press F" else "Shield used"
+
+	hintLabel.Visible = hintForBuilderBuild or hintForBuilderAttack or hintForAttacker
 	if hintForAttacker then
 		hintLabel.Text = "mouse aim · Q/E angle (catapult) · C camera · click, click at meter target to launch"
+	elseif hintForBuilderAttack then
+		hintLabel.Text = "F to raise your shield — time it against the incoming shot"
 	else
 		hintLabel.Text = "click cell to place · R rotate · Z flip · Confirm Wall when done"
 	end
