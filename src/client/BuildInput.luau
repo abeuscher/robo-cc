@@ -24,22 +24,20 @@ local player = Players.LocalPlayer
 local BuildInput = {}
 
 local PLANE_Z = Config.BuildZoneOrigin.Z
--- Only one block type this session (session 007 makes this per-piece and
--- random); every held piece uses this shape.
-local PIECE_SHAPE = Config.BlockTypes[1].Shape
 
 local active = false
 local piecesRemaining = 0
+local pieceShape = {} -- the held piece's shape at rotation 0, unflipped -- mirrors StateChanged.currentShape
 local rotation = 0
 local flipped = false
 local ghostCubes = {} -- pool of translucent per-cell preview parts, grown as needed
 local confirmGui
 local renderConn, clickConn
 
--- The held piece's footprint at rotation 0: PIECE_SHAPE mirrored left-right if
+-- The held piece's footprint at rotation 0: pieceShape mirrored left-right if
 -- `flipped`. Rotation is applied on top of this wherever it's used.
 local function baseShape()
-	return if flipped then GridUtil.mirrorShape(PIECE_SHAPE) else PIECE_SHAPE
+	return if flipped then GridUtil.mirrorShape(pieceShape) else pieceShape
 end
 
 -- Grows the ghost-cube pool to at least `count` parts. Each is a translucent
@@ -228,7 +226,12 @@ end
 -- shows the button and connects onRender and onInput; on the transition out it
 -- disconnects them and hides the ghost and button.
 function BuildInput.update(state)
-	piecesRemaining = (state.blocksRemaining and state.blocksRemaining.LPiece) or 0
+	piecesRemaining = state.blocksRemaining or 0
+	-- A fresh piece arrives after every placement, well inside a single BUILD
+	-- phase -- this has to update on every broadcast, not just on the
+	-- activation transition (the same lesson session 007 needed for
+	-- AttackInput's currentWeapon).
+	pieceShape = state.currentShape or pieceShape
 
 	local shouldBeActive = state.phase == "BUILD"
 		and state.roles ~= nil

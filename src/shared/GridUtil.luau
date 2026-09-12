@@ -45,8 +45,10 @@ end
 
 -- Shifts a list of cell offsets so the minimum column and row are both 0,
 -- without changing their shape. Shared by rotateShape and mirrorShape so both
--- keep "anchor" meaning "bottom-left cell of the bounding box."
-local function normalizeShape(cells)
+-- keep "anchor" meaning "bottom-left cell of the bounding box"; exported for
+-- callers that build a shape from scratch (e.g. random generation) and need
+-- the same normalization before handing it to the rest of this module.
+function GridUtil.normalizeShape(cells)
 	local minX, minY = math.huge, math.huge
 	for _, c in cells do
 		minX = math.min(minX, c.X)
@@ -72,7 +74,7 @@ function GridUtil.rotateShape(shape, rotation)
 		end
 		rotated[i] = Vector2.new(x, y)
 	end
-	return normalizeShape(rotated)
+	return GridUtil.normalizeShape(rotated)
 end
 
 -- Mirrors a shape's local cell offsets left-right (negates column, keeps
@@ -84,7 +86,7 @@ function GridUtil.mirrorShape(shape)
 	for i, offset in shape do
 		mirrored[i] = Vector2.new(-offset.X, offset.Y)
 	end
-	return normalizeShape(mirrored)
+	return GridUtil.normalizeShape(mirrored)
 end
 
 -- The (cols, rows) bounding box of a shape already normalized to min (0, 0).

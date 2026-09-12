@@ -5,9 +5,9 @@ export type Phase = "BUILD" | "ATTACK" | "RESOLVE" | "SWAP"
 
 export type Role = "Builder" | "Attacker"
 
-export type BlockType = "LPiece"
-
 export type Weapon = "Ballista" | "Catapult"
+
+export type PieceShape = { Vector2 } -- local (column, row) cell offsets, normalized to min (0, 0)
 
 export type PlacePayload = {
 	cell: Vector2, -- bottom-left anchor cell of the (rotated/flipped) footprint's bounding box
@@ -26,18 +26,15 @@ export type Roles = {
 	attacker: number,
 }
 
-export type BlocksRemaining = {
-	LPiece: number,
-}
-
 export type Score = { [number]: number } -- UserId -> rounds won
 
 export type StatePayload = {
 	phase: Phase,
 	roles: Roles?,
-	blocksRemaining: BlocksRemaining,
+	blocksRemaining: number,
 	shotsRemaining: number,
 	currentWeapon: Weapon?, -- mandated weapon for the shot about to fire; nil outside ATTACK
+	currentShape: PieceShape?, -- the held piece's shape; nil outside BUILD
 	round: number,
 	score: Score,
 }

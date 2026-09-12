@@ -1,7 +1,7 @@
 -- Handles the BUILD-phase remotes. Every handler re-validates role, phase and
 -- limits -- the client sends intent only. Grid occupancy lives here and is
 -- authoritative: one entry per covered cell, keyed by "col,row". The Builder
--- always places the queue's current piece (BlockManager.currentTypeDef()) --
+-- always places the queue's current piece (BlockManager.currentShape()) --
 -- there's no client-chosen blockId, and no picking a placed piece back up.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -42,15 +42,15 @@ local function onPlaceBlock(player, payload)
 		return
 	end
 
-	local typeDef = BlockManager.currentTypeDef()
-	if not typeDef then
+	local currentShape = BlockManager.currentShape()
+	if not currentShape then
 		return
 	end
 
 	local rotation = tonumber(payload.rotation) or 0
 	rotation = math.floor(rotation) % 4
 	local flipped = payload.flipped == true
-	local shape = if flipped then GridUtil.mirrorShape(typeDef.Shape) else typeDef.Shape
+	local shape = if flipped then GridUtil.mirrorShape(currentShape) else currentShape
 	local anchor = Vector2.new(math.floor(cell.X), math.floor(cell.Y))
 	local cells = GridUtil.coveredCells(shape, anchor, rotation)
 

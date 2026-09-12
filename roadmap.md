@@ -333,22 +333,47 @@ the mid-turn switch. Playtested green with two players; user's assessment was "O
 good." Randomized Piece Generation (Pass 8) was drafted as this session's own close-time
 precondition once the playtest looked good, per the cadence session 006 established.
 
-### Pass 8 — Randomized Piece Generation
-Replaces the fixed L-piece with a per-placement randomly generated shape: 3-6 of the 9 cells in
+### Pass 8 — Randomized Piece Generation — **done (session 008)**
+Replaced the fixed L-piece with a per-placement randomly generated shape: 3-6 of the 9 cells in
 a 3×3 area filled at random (count and which cells both randomized). Cells that end up mutually
 adjacent fuse into one rigid `UnionOperation`; cells that end up isolated stay independently
-physical. Breaks the invariant every prior pass relied on — one placed piece has always been
-exactly one rigid body — so a single placement now needs to resolve into however many separate
-falling bodies its random connectivity produces at ATTACK start. Requires a network-contract
-change (the server generates the shape and has to hand it to the client — it can no longer live
-as a static named entry in `Config`). `GridUtil`'s shape/rotation math (including Pass 6's
-mirrorShape) and `BuildInput`'s per-cell ghost pool are expected to take an arbitrary
-runtime-generated shape unchanged.
-**Done when:** each of the Builder's 9 pieces is a freshly randomized shape, places, rotates,
-and flips correctly, and at ATTACK start its connected clusters fall independently of its
-isolated cells.
+physical. Broke the invariant every prior pass relied on — one placed piece has always been
+exactly one rigid body — so a single placement now resolves into however many separate falling
+bodies its random connectivity produces at ATTACK start. Connectivity is computed once per
+shape at generation time (rotation and mirroring both preserve adjacency, so it never needs
+recomputing per placement). Required the network-contract change anticipated at session 007's
+close (the server generates the shape and hands it to the client via `StateChanged.currentShape`
+— the same "broadcast it every update, not just on activation" pattern session 007 established
+for the mandated weapon, since a fresh piece now arrives after every single placement). Also
+corrected this pass's own brief mid-session: the fixed trench (`BuildZoneSize`) is sized off
+`PieceCount x PieceGridSize`, not `PieceCount x PieceMaxCells` — a piece's bounding box can never
+exceed its 3x3 generation area regardless of how many cells within it are filled, so cell count
+affects mass and variety, not footprint extent.
+**Done:** each of the Builder's 9 pieces is a freshly randomized shape, places, rotates, and
+flips correctly, and at ATTACK start its connected clusters fall independently of its isolated
+cells. Playtested green with two players; user confirmed the core mechanic directly ("the blocks
+do drop when they are single inside the grid as separate entities") and assessed it as improving
+the BUILD phase "quite a bit."
 
-### Pass 9 — Tune, then launch
+### Pass 9 — Physical Projectiles
+Replaces the raycast-stepped, anchored "hit probe" projectile (deliberately not a physics body,
+per `WeaponManager`'s own design) with a real, persistent physical ball per weapon — the
+catapult's heavy with a little bounce, the ballista's light and fast (differentiated by mass and
+speed, not shape, since a puck risks tumbling unpredictably under real physics and a ball
+doesn't). Reduces both weapons' force/impact for balance, replacing the manual `ApplyImpulse`
+knockback with real collision physics. Separately but in the same pass, changes the Princess's
+win condition from a touch/velocity check to a purely physical one: she becomes a real unanchored
+body for the first time, and dies only when knocked onto her side (a single continuous tilt-angle
+check), replacing both of today's kill paths (a raycast-reported direct hit, and `Touched` by a
+fast-moving `BlockId` part) rather than generalizing them. Two independent balance levers in one
+session — projectile force and the Princess's own toppling threshold — deliberately not
+conflated with the "make ATTACK more interesting" half of the goal (permanence and shape).
+**Done when:** the catapult ball bounces and settles, the ballista ball reads as distinctly
+lighter/faster, both persist after landing, a wall takes more hits to bring down than today, and
+the Princess only goes down when actually toppled — a graze that would have killed her before no
+longer does.
+
+### Pass 10 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
 

@@ -21,20 +21,12 @@ local PrincessMonitor = require(script.Parent.PrincessMonitor)
 
 local MatchController = {}
 
-local function initialRemaining()
-	local counts = {}
-	for _, typeDef in Config.BlockTypes do
-		counts[typeDef.Name] = typeDef.Count
-	end
-	return counts
-end
-
 local joinOrder = {}
 local roundResetHooks = {}
 local state = {
 	phase = "BUILD",
 	roles = nil,
-	blocksRemaining = initialRemaining(),
+	blocksRemaining = Config.PieceCount,
 	shotsRemaining = 0,
 	round = 1,
 	score = {}, -- UserId -> rounds won
@@ -61,6 +53,16 @@ local function currentWeapon()
 	return Config.ShotSequence[#Config.ShotSequence - state.shotsRemaining + 1]
 end
 
+-- The shape of the piece the Builder currently holds -- nil outside BUILD.
+-- Randomized per piece (session 008), so the client can no longer look this
+-- up from a shared Config constant; it has to arrive on every broadcast.
+local function currentShape()
+	if state.phase ~= "BUILD" then
+		return nil
+	end
+	return BlockManager.currentShape()
+end
+
 local function broadcast()
 	Remotes.StateChanged:FireAllClients({
 		phase = state.phase,
@@ -68,6 +70,7 @@ local function broadcast()
 		blocksRemaining = state.blocksRemaining,
 		shotsRemaining = state.shotsRemaining,
 		currentWeapon = currentWeapon(),
+		currentShape = currentShape(),
 		round = state.round,
 		score = state.score,
 	})
@@ -134,7 +137,7 @@ local function startRound()
 	Arena.resetRound()
 	runRoundResetHooks()
 	BlockManager.resetQueue()
-	state.blocksRemaining = initialRemaining()
+	state.blocksRemaining = Config.PieceCount
 	state.phase = "BUILD"
 	broadcast()
 	repositionAll()
