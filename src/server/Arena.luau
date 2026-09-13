@@ -54,13 +54,14 @@ function Arena.root()
 	return folder
 end
 
-local function part(name, size, position, color, transparency)
+local function part(name, size, position, color, transparency, material)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Anchored = true
 	p.Size = size
 	p.Position = position
 	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
 	p.Transparency = transparency or 0
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
@@ -117,7 +118,8 @@ function Arena.build()
 	local groundMaxZ = halfGap + Config.PlatformSize.Z
 	local groundSize = Vector3.new(Config.PlatformSize.X, Config.PlatformSize.Y, groundMaxZ - groundMinZ)
 
-	local ground = part("Ground", groundSize, Vector3.new(0, platformY, (groundMinZ + groundMaxZ) / 2), GRASS)
+	local ground =
+		part("Ground", groundSize, Vector3.new(0, platformY, (groundMinZ + groundMaxZ) / 2), GRASS, nil, Enum.Material.Grass)
 	ground.CustomPhysicalProperties = GROUND_PROPS
 	ground.Parent = boundary
 
@@ -129,25 +131,33 @@ function Arena.build()
 		"WallNear",
 		Vector3.new(groundSize.X + wallThickness * 2, wallHeight, wallThickness),
 		Vector3.new(0, wallY, groundMinZ - wallThickness / 2),
-		STONE
+		STONE,
+		nil,
+		Enum.Material.Cobblestone
 	).Parent = boundary
 	part(
 		"WallFar",
 		Vector3.new(groundSize.X + wallThickness * 2, wallHeight, wallThickness),
 		Vector3.new(0, wallY, groundMaxZ + wallThickness / 2),
-		STONE
+		STONE,
+		nil,
+		Enum.Material.Cobblestone
 	).Parent = boundary
 	part(
 		"WallLeft",
 		Vector3.new(wallThickness, wallHeight, groundSize.Z + wallThickness * 2),
 		Vector3.new(-groundHalfX - wallThickness / 2, wallY, 0),
-		STONE
+		STONE,
+		nil,
+		Enum.Material.Cobblestone
 	).Parent = boundary
 	part(
 		"WallRight",
 		Vector3.new(wallThickness, wallHeight, groundSize.Z + wallThickness * 2),
 		Vector3.new(groundHalfX + wallThickness / 2, wallY, 0),
-		STONE
+		STONE,
+		nil,
+		Enum.Material.Cobblestone
 	).Parent = boundary
 
 	part(
@@ -155,7 +165,8 @@ function Arena.build()
 		Vector3.new(Config.BuildZoneSize.X, 0.1, Config.BlockSize.Z),
 		Vector3.new(0, Config.GroundLevel + 0.05, Config.BuildZoneOrigin.Z),
 		MARK,
-		0.35
+		0.35,
+		Enum.Material.Neon
 	).Parent = root
 
 	for _, weapon in { "Ballista", "Catapult" } do
@@ -165,7 +176,8 @@ function Arena.build()
 			Vector3.new(4, 0.1, 4),
 			Vector3.new(sign * Config.MuzzleOffsetX, Config.GroundLevel + 0.05, -(halfGap + 2)),
 			MARK,
-			0.35
+			0.35,
+			Enum.Material.Neon
 		).Parent = root
 	end
 
@@ -190,7 +202,9 @@ function Arena.build()
 			Config.GroundLevel + Config.GuardSize.Y / 2,
 			Config.BuildZoneOrigin.Z + Config.GuardDistance
 		),
-		SLATE
+		SLATE,
+		nil,
+		Enum.Material.Slate
 	)
 	guard.CustomPhysicalProperties = GUARD_PROPS
 	guard.Parent = root

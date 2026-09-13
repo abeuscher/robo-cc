@@ -18,6 +18,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local GridUtil = require(Shared:WaitForChild("GridUtil"))
+local Hud = require(script.Parent:WaitForChild("Hud"))
 
 local player = Players.LocalPlayer
 
@@ -38,6 +39,13 @@ local renderConn, clickConn
 -- `flipped`. Rotation is applied on top of this wherever it's used.
 local function baseShape()
 	return if flipped then GridUtil.mirrorShape(pieceShape) else pieceShape
+end
+
+-- Pushes the held piece's shape/rotation/flip to the HUD so its small preview
+-- (Current Block) tracks exactly what the ghost on the build plane shows.
+-- Mirrors AttackInput's own setAttackReadout pattern.
+local function publish()
+	Hud.setBuildReadout({ shape = pieceShape, rotation = rotation, flipped = flipped })
 end
 
 -- Grows the ghost-cube pool to at least `count` parts. Each is a translucent
@@ -185,10 +193,12 @@ local function onInput(inputObject, gameProcessed)
 
 	if inputObject.KeyCode == Enum.KeyCode.R then
 		rotation = (rotation + 1) % 4
+		publish()
 		return
 	end
 	if inputObject.KeyCode == Enum.KeyCode.Z then
 		flipped = not flipped
+		publish()
 		return
 	end
 	if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 then
@@ -211,6 +221,7 @@ local function onInput(inputObject, gameProcessed)
 	})
 	rotation = 0
 	flipped = false
+	publish()
 end
 
 -- One-time setup, called once after the player leaves the title screen. Creates
@@ -231,7 +242,11 @@ function BuildInput.update(state)
 	-- phase -- this has to update on every broadcast, not just on the
 	-- activation transition (the same lesson session 007 needed for
 	-- AttackInput's currentWeapon).
+	local previousShape = pieceShape
 	pieceShape = state.currentShape or pieceShape
+	if pieceShape ~= previousShape then
+		publish()
+	end
 
 	local shouldBeActive = state.phase == "BUILD"
 		and state.roles ~= nil

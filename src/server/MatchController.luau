@@ -68,10 +68,22 @@ local function currentShape()
 	return BlockManager.currentShape()
 end
 
+-- Stable seat identity by join order -- "Player 1" / "Player 2" -- separate
+-- from state.roles, which flips every SWAP. Lets the HUD show a fixed score
+-- readout per person across the whole match instead of one that swaps labels
+-- with their role.
+local function seats()
+	return {
+		one = joinOrder[1] and joinOrder[1].UserId or nil,
+		two = joinOrder[2] and joinOrder[2].UserId or nil,
+	}
+end
+
 local function broadcast()
 	Remotes.StateChanged:FireAllClients({
 		phase = state.phase,
 		roles = state.roles,
+		players = seats(),
 		blocksRemaining = state.blocksRemaining,
 		shotsRemaining = state.shotsRemaining,
 		currentWeapon = currentWeapon(),
@@ -150,12 +162,21 @@ local function startRound()
 	repositionAll()
 end
 
--- Best of RoundsPerMatch, two players only (same assumption the rest of the
--- module makes). Higher score wins; equal scores are a tie (winner = nil).
-local function finishMatch()
+-- Both players' cumulative scores, defaulting to 0 for anyone who hasn't
+-- scored yet (or isn't there, in the solo-permissive case).
+local function scores()
 	local p1, p2 = joinOrder[1], joinOrder[2]
 	local s1 = p1 and (state.score[p1.UserId] or 0) or 0
 	local s2 = p2 and (state.score[p2.UserId] or 0) or 0
+	return s1, s2
+end
+
+-- Best of RoundsPerMatch, two players only (same assumption the rest of the
+-- module makes). Only ever called once scores() are unequal (see
+-- shouldEndMatch) -- sudden death means a genuine tie never reaches here.
+local function finishMatch()
+	local p1, p2 = joinOrder[1], joinOrder[2]
+	local s1, s2 = scores()
 	local winnerUserId = nil
 	if s1 > s2 then
 		winnerUserId = p1.UserId
@@ -164,6 +185,18 @@ local function finishMatch()
 	end
 	Remotes.MatchResult:FireAllClients({ winner = winnerUserId, score = state.score })
 	print(string.format("[server] MATCH complete -> winner %s", tostring(winnerUserId)))
+end
+
+-- The match ends after RoundsPerMatch rounds, unless the score is tied --
+-- then it keeps going one round at a time (sudden death) until someone is
+-- actually ahead. Below RoundsPerMatch it's always another round regardless
+-- of score.
+local function shouldEndMatch()
+	if state.round < Config.RoundsPerMatch then
+		return false
+	end
+	local s1, s2 = scores()
+	return s1 ~= s2
 end
 
 local function swapRoles()
@@ -238,7 +271,7 @@ local function finishRound()
 		reason
 	))
 
-	awaitContinue(if state.round >= Config.RoundsPerMatch then finishMatch else swapRoles)
+	awaitContinue(if shouldEndMatch() then finishMatch else swapRoles)
 end
 
 -- Enters RESOLVE and waits Config.ResolveSettleTime for physics to settle

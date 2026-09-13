@@ -27,11 +27,17 @@ export type Roles = {
 	attacker: number,
 }
 
+export type Seats = {
+	one: number?,
+	two: number?,
+}
+
 export type Score = { [number]: number } -- UserId -> cumulative points
 
 export type StatePayload = {
 	phase: Phase,
 	roles: Roles?,
+	players: Seats, -- stable Player 1 / Player 2 by join order, unlike roles (flips every SWAP)
 	blocksRemaining: number,
 	shotsRemaining: number,
 	currentWeapon: Weapon?, -- mandated weapon for the shot about to fire; nil outside ATTACK

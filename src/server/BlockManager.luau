@@ -251,7 +251,7 @@ function BlockManager.placeCurrent(centre, rotation, flipped)
 			body.UsePartColor = true
 		end
 		body.Color = BLOCK_COLOR
-		body.Material = Enum.Material.Plastic
+		body.Material = Enum.Material.Concrete
 		body.CustomPhysicalProperties = PROPS
 		body.CFrame = CFrame.new(centre) * CFrame.Angles(0, 0, math.rad(90 * rotation)) * pivotDelta
 		body:SetAttribute("BlockId", nextId)

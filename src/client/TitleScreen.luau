@@ -22,25 +22,14 @@ function TitleScreen.show(onStart)
 
 	local title = Instance.new("TextLabel")
 	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.fromScale(0.5, 0.36)
-	title.Size = UDim2.fromScale(0.7, 0.18)
+	title.Position = UDim2.fromScale(0.5, 0.44)
+	title.Size = UDim2.fromScale(0.8, 0.2)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBlack
-	title.Text = "SIEGE"
+	title.Text = "OW MY WALLS!"
 	title.TextColor3 = Color3.fromRGB(238, 238, 238)
 	title.TextScaled = true
 	title.Parent = backdrop
-
-	local subtitle = Instance.new("TextLabel")
-	subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	subtitle.Position = UDim2.fromScale(0.5, 0.5)
-	subtitle.Size = UDim2.fromScale(0.6, 0.06)
-	subtitle.BackgroundTransparency = 1
-	subtitle.Font = Enum.Font.Gotham
-	subtitle.Text = "build the wall. break the wall."
-	subtitle.TextColor3 = Color3.fromRGB(150, 155, 165)
-	subtitle.TextScaled = true
-	subtitle.Parent = backdrop
 
 	local button = Instance.new("TextButton")
 	button.AnchorPoint = Vector2.new(0.5, 0.5)

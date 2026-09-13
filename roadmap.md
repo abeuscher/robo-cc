@@ -512,20 +512,80 @@ starting to balance a bit." Ballista Elevation (Pass 15, mirroring this session'
 mechanic for the ballista's launch angle) was added to the roadmap directly from this session's
 close, not from its own playtest.
 
-### Pass 14 — Tune, then launch
-Playtest and adjust `Config` by feel (order below). Then publish and play in the real
-client.
+### Pass 14 — Tune, then launch — **scope shifted; tuning still outstanding (session 014)**
+Planned as: playtest and adjust `Config` by feel (§7 below), then publish and play in the real
+client. What actually happened diverged substantially. Publishing was done by the user before the
+session opened (Friends-only permissions) -- not tuning-gated, since the user judged the build
+ready. The planned tuning pass itself never happened: no baseline playtest complaint was gathered
+and no `Config` value was touched all session. Instead, at the user's request, the session became
+a run of feature additions -- a rename ("Ow My Walls!", tagline removed), sudden-death overtime on
+a tied match score, a `Material` pass across the arena's parts (previously all silently plain
+plastic despite their colors), and a HUD rework (translucent rounded backdrops, a stable Player
+1/Player 2 score panel by join order distinct from the Builder/Attacker roles that flip every
+round, a reorganized info block, and a live shape/weapon icon preview) -- plus drafting two new
+roadmap passes (15 and 16, below). **The tuning work this pass was named for is still fully
+outstanding**, not assigned to a session number yet, and needs one before it's picked up (see
+session 014's own log, "Deferred / carried forward"). Real-client verification (launching from an
+actual second Roblox client, not just Studio) is separately still outstanding too, for the same
+reason -- no second account was available this session.
 
-### Pass 15 — Ballista Elevation (Ramp)
-Adds a small elevation/ramp control to the ballista, set the same way session 13 built catapult
-spin: the third click of the same launch-meter sequence, a small meter that raises and lowers
-(oscillating, lock it with a click) rather than the catapult's left-right spin. Lets the
-ballista's shot launch at a higher angle than dead flat off the ground, instead of a fixed flat
-trajectory. Gives both weapons a second control axis on their third click, where before only the
-catapult had one. Worth flagging, not deciding now: spec calls the ballista's flat trajectory
-"blocked by any standing wall... cannot arc over" as its core identity -- an elevation control
-pushes against that, so how much arc to allow (and whether it should still be blocked by a wall
-in its path) is an Open Gate question for that session, not assumed here.
+### Pass 15 — Hidden Flag & Rainbow Wall
+Replaces the Princess with a **Flag**: same role as the ultimate target, but a different kill
+model and a new piece of hidden information. Queued from session 014's close, at the user's
+request. Two independent changes, bundled because both touch the wall/target presentation:
+- **The Flag.** Doesn't topple (no more `PrincessTopplingAngle`/tilt check) -- it's hit or it
+  isn't. Hidden from the Attacker until struck by *either* a projectile or a falling wall piece,
+  at which point it's revealed for the rest of the round -- but the Attacker's point bonus (raised
+  15 -> 20, still on top of the existing 1-point-per-surviving-block score) is earned only on a
+  direct **projectile** hit, not an incidental wall-collapse contact. That gives the Attacker a
+  real mechanism to force the reveal (break the wall onto it) separate from the mechanism that
+  actually scores. The Builder can reposition the Flag once after the wall is confirmed, before
+  ATTACK begins -- exact mechanism (click-to-relocate vs. a bounded drag, and whether it can move
+  off the Guard/Shield's shared central axis) is this session's own Open Gate question.
+  Concealment is real, not cosmetic: `BasePart.LocalTransparencyModifier` hides the Flag on the
+  Attacker's client alone (Builder and physics are unaffected), and the Attacker's own aim-assist
+  (crosshair + predictive trace in `AttackInput`) excludes it from its raycasts while hidden, so
+  the assist tools can't leak its position -- a real shot can still connect either way. This
+  reverts part of session 009's Princess rework back toward the pre-009 Touched-based hit model,
+  now applied to the Flag instead.
+- **Rainbow wall.** Every placed piece gets a distinct color from a fixed pastel palette ordered
+  like a rainbow (piece 1 of `PieceCount` red-ish, the last violet-ish), replacing the uniform
+  grey wall. Palette is generated, not hand-picked -- evenly spaced hues at a fixed
+  pastel saturation/value via `Color3.fromHSV`, sized to `Config.PieceCount` so it stays correct
+  if that's retuned again. Colors by placement order, not by body -- a piece that fractures into
+  several independent bodies (session 008) keeps them all the same color.
+
+### Pass 16 — Two-Button Meters & Ballista Elevation
+Reworks the third-click stage's *control scheme* for both weapons, and gives the ballista its own
+second axis on it for the first time. Supersedes session 013's oscillating-meter/freeze-click
+design for catapult spin (never independently tuned before this replaces it) and folds in what was
+previously a separate, simpler plan for ballista elevation, since both now share one interaction
+model. Queued from session 014's close, at the user's request.
+- **Two-button, timed input.** Instead of an auto-oscillating meter frozen by a click, the third
+  stage becomes a fixed **3-second window** (a 3-2-1 countdown displayed to the meter's right)
+  during which the Up/Down arrow keys (unused elsewhere in the game) nudge a dot -- continuously
+  while held, not one discrete step per press, so it reads as responsive rather than ticky. Letting
+  the window run out **auto-fires at whatever value the dot is currently at** -- if the player never
+  touches the keys, that's centered/flat, i.e. no spin, no elevation. Mirrors session 013's own
+  asymmetric timeout rule (fires rather than cancels), just re-grounded in the new control scheme.
+- **Catapult (spin):** a single horizontal line with a dot that starts centered and moves above or
+  below it -- above/below stand in for the same left/right curve direction the old meter produced,
+  just mapped onto Up/Down instead of a left-right oscillation.
+- **Ballista (elevation, new):** the same two-button window, visualized differently -- a flat
+  horizon line with a fulcrum, and a second segment that lifts off it proportional to how long
+  Up has been pressed, roughly a "less than" shape once elevated. Starts flat (matching the
+  ballista's current dead-flat launch). Still open, not decided here: spec calls the ballista's
+  flat trajectory "blocked by any standing wall... cannot arc over" as its core identity, so how
+  much arc this actually allows (and whether it's still blocked by a wall in its path) is that
+  session's own Open Gate question.
+- **HUD relayout.** All three meters (power, plus whichever of spin/elevation applies) move
+  together to the **left side** of the Attacker's screen and stay visible for the Attacker's whole
+  turn, not just mid-swing -- the spin/elevation meter sits at its rest position (centered dot /
+  flat horizon) from the start of the turn, not just popping in once the power meter freezes, so
+  its final position is never a surprise. The power meter itself doubles in both height and width;
+  its fill timing (`METER_LEG_TIME`) stays exactly the same, so the bar physically travels twice
+  the distance in the same time -- reads as faster without actually changing the timing constant
+  anything else keys off.
 
 ### Deferred — structural placement rules (not yet scheduled)
 BUILD currently lets the Builder drop a block into any free, in-bounds cell, including
