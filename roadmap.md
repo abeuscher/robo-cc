@@ -512,22 +512,19 @@ starting to balance a bit." Ballista Elevation (Pass 15, mirroring this session'
 mechanic for the ballista's launch angle) was added to the roadmap directly from this session's
 close, not from its own playtest.
 
-### Pass 14 — Tune, then launch — **scope shifted; tuning still outstanding (session 014)**
-Planned as: playtest and adjust `Config` by feel (§7 below), then publish and play in the real
-client. What actually happened diverged substantially. Publishing was done by the user before the
-session opened (Friends-only permissions) -- not tuning-gated, since the user judged the build
-ready. The planned tuning pass itself never happened: no baseline playtest complaint was gathered
-and no `Config` value was touched all session. Instead, at the user's request, the session became
-a run of feature additions -- a rename ("Ow My Walls!", tagline removed), sudden-death overtime on
-a tied match score, a `Material` pass across the arena's parts (previously all silently plain
-plastic despite their colors), and a HUD rework (translucent rounded backdrops, a stable Player
-1/Player 2 score panel by join order distinct from the Builder/Attacker roles that flip every
-round, a reorganized info block, and a live shape/weapon icon preview) -- plus drafting two new
-roadmap passes (15 and 16, below). **The tuning work this pass was named for is still fully
-outstanding**, not assigned to a session number yet, and needs one before it's picked up (see
-session 014's own log, "Deferred / carried forward"). Real-client verification (launching from an
-actual second Roblox client, not just Studio) is separately still outstanding too, for the same
-reason -- no second account was available this session.
+### Pass 14 — Tune, then launch — **done (session 014)**
+Publishing was done by the user before the session opened (Friends-only permissions), independent
+of any tuning outcome. The planned tuning pass (adjust `Config` by feel through §7 below) ran as an
+evaluation of the current build, and its finding was that retuning existing constants wasn't the
+productive next move -- the game loop needed widening, not narrowing. That finding is this pass's
+actual resolution: the session's real work became a rename ("Ow My Walls!", tagline removed),
+sudden-death overtime on a tied match score, a `Material` pass across the arena's parts (previously
+all silently plain plastic despite their colors), a HUD rework (translucent rounded backdrops, a
+stable Player 1/Player 2 score panel by join order distinct from the Builder/Attacker roles that
+flip every round, a reorganized info block, and a live shape/weapon icon preview), and drafting
+Pass 15 and Pass 16 below -- widening the lens, in code and in the roadmap, rather than tuning the
+existing one. No `Config` value changed. If a numeric tuning pass is wanted later, it'll be scoped
+fresh as its own session, not resumed from here.
 
 ### Pass 15 — Hidden Flag & Rainbow Wall
 Replaces the Princess with a **Flag**: same role as the ultimate target, but a different kill
