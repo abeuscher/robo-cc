@@ -99,7 +99,7 @@ local function render()
 		local otherId = if state.roles.builder == player.UserId then state.roles.attacker else state.roles.builder
 		local myScore = (state.score and state.score[player.UserId]) or 0
 		local otherScore = (otherId and state.score and state.score[otherId]) or 0
-		scoreLabel.Text = string.format("Score  —  You: %d   Opponent: %d", myScore, otherScore)
+		scoreLabel.Text = string.format("Score  —  You: %d pts   Opponent: %d pts", myScore, otherScore)
 	end
 
 	local inBuild = state.phase == "BUILD"

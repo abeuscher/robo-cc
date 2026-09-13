@@ -454,15 +454,38 @@ one-use limit was exercised twice in the same round — the session's playtest c
 on the catapult retune instead. User's assessment after the retune was "Better," then "Okay.
 Better." after a follow-up round.
 
-### Pass 12 — Scoring & Points
-Replaces the binary round win/loss with a points comparison: the Builder is scored on how many wall
-pieces remain (not toppled off the platform) at round end, plus whether the Princess fell — tuned
-so a Princess kill is worth roughly a quarter of the maximum possible wall-piece score, so an
-Attacker has a genuine reason to grind down the wall for points rather than only ever hunting the
-Princess. Changes `Types.RoundResult`'s data shape, `MatchController`'s scoring, and `ResultBanner`
-— open design questions (what counts as a surviving "piece" once one piece can split into several
-independent bodies; whether "not toppled off the base" means still on the platform at all versus
-still standing) get resolved at this session's own Open Gate.
+### Pass 12 — Scoring & Points — **done (session 012)**
+Replaced the binary round win/loss with a points comparison. The Builder scores per surviving wall
+piece at round end -- body-level, not by original Builder placement, since one placement can
+already split into several independent bodies (session 008) and `BlockManager` already tracks
+bodies flatly, not grouped by placement. "Survived" is an orientation check (angle drift from how
+each body was placed, `Config.BlockTopplingAngle = 60`, mirroring `PrincessMonitor`'s own tilt
+mechanism) rather than the spatial "off the platform" reading this entry originally floated --
+session 012's own reading of `Arena.luau` found the arena fully walled with one continuous flat
+ground and no pit, so a piece can never actually leave the platform under the current geometry and
+a spatial edge check would have almost nothing to trigger on. The Attacker scores a fixed
+`Config.PrincessKillPoints` bonus (15) for toppling the Princess, tuned to roughly a quarter of the
+theoretical maximum wall score (60 -- `PieceCount x PieceMaxCells`, worst-case fragmentation) rather
+than a typical round's actual body count, which is usually lower. `Types.RoundResult` now carries
+the full points breakdown (`piecesSurvived`, `piecesTotal`, `builderPoints`, `attackerPoints`,
+`winner`) instead of a single deterministic winner; `state.score` keeps its `UserId`-keyed shape
+but its meaning shifts from rounds won to cumulative points -- `MatchResult` needed no change since
+it already just compared `state.score` entries. `ResultBanner` and `Hud` updated to show points
+instead of round wins.
+Scope extended during the session, from playtest feedback unrelated to scoring itself: the
+catapult still wasn't knocking walls down convincingly even after session 011's angle retune, so
+`Config.CatapultProjectileMass` rose 35 → 43.75 (+25%, chosen over a force/velocity change since
+mass doesn't affect trajectory under Roblox's gravity, so aim/reach stayed exactly as tuned), the
+launch meter's timing (`AttackInput.METER_LEG_TIME`) sped up 3.4s → 2.4s (30% faster), and
+`Config.ShotSequence` grew from 3 shots (`Catapult, Catapult, Ballista`) to 5
+(`Catapult, Catapult, Catapult, Ballista, Ballista`) once the mass and meter retune still weren't
+enough on their own.
+**Done:** points are awarded and displayed for both the Builder (piece survival) and Attacker
+(Princess kill bonus), the running/match score reads as cumulative points throughout, and the
+result banner shows each round's breakdown. Playtested with two players across the mid-session
+tuning iterations; user's assessment after the shot-sequence extension was "Okay looking good."
+Weapon Spin & Trajectory/Bounce (Pass 13) was drafted as this session's own close-time precondition
+once the playtest looked good, per the established cadence.
 
 ### Pass 13 — Weapon Spin & Trajectory/Bounce
 Adds spin to firing (harder to aim accurately) and reworks trajectory/bounce feel for one or both

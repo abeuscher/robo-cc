@@ -46,8 +46,9 @@ local TRACE_RANGE = 140
 
 -- One full ascent or descent of the launch meter: linear, no bounce. A press
 -- runs the bar up then back down once and stops -- it does not loop on its own;
--- pressing again starts a fresh up-and-down.
-local METER_LEG_TIME = 3.4
+-- pressing again starts a fresh up-and-down. 2.4s, 30% faster than the
+-- original 3.4s (session 012 playtest feedback).
+local METER_LEG_TIME = 2.4
 
 local CROSSHAIR_COLOR = Color3.fromRGB(255, 230, 120)
 local CROSSHAIR_HIT_COLOR = Color3.fromRGB(100, 230, 130)

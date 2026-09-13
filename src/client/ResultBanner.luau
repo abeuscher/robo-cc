@@ -45,7 +45,7 @@ local function build()
 	gui.ResetOnSpawn = false
 
 	container = Instance.new("Frame")
-	container.Size = UDim2.fromOffset(560, 130)
+	container.Size = UDim2.fromOffset(560, 160)
 	container.AnchorPoint = Vector2.new(0.5, 0)
 	container.Position = UDim2.new(0.5, 0, 0, 40)
 	container.BackgroundTransparency = 1
@@ -62,11 +62,13 @@ local function build()
 	title.Parent = container
 
 	subtitle = Instance.new("TextLabel")
-	subtitle.Size = UDim2.new(1, 0, 0, 28)
+	subtitle.Size = UDim2.new(1, 0, 0, 48)
 	subtitle.Position = UDim2.new(0, 0, 0, 58)
 	subtitle.BackgroundTransparency = 1
 	subtitle.Font = Enum.Font.Gotham
-	subtitle.TextSize = 22
+	subtitle.TextSize = 18
+	subtitle.TextWrapped = true
+	subtitle.TextYAlignment = Enum.TextYAlignment.Top
 	subtitle.TextColor3 = Color3.fromRGB(220, 220, 225)
 	subtitle.Text = ""
 	subtitle.Parent = container
@@ -75,7 +77,7 @@ local function build()
 	continueButton.Name = "Continue"
 	continueButton.Size = UDim2.fromOffset(160, 36)
 	continueButton.AnchorPoint = Vector2.new(0.5, 0)
-	continueButton.Position = UDim2.new(0.5, 0, 0, 92)
+	continueButton.Position = UDim2.new(0.5, 0, 0, 116)
 	continueButton.BackgroundColor3 = Color3.fromRGB(60, 90, 130)
 	continueButton.Font = Enum.Font.GothamBold
 	continueButton.TextSize = 20
@@ -112,9 +114,24 @@ local function myRole()
 end
 
 local function onRoundResult(result)
-	local youWon = myRole() == result.winner
-	local headline = youWon and "You win the round" or (result.winner .. " wins the round")
-	show(headline, REASON_TEXT[result.reason] or result.reason, true)
+	local headline
+	if result.winner == nil then
+		headline = "Round tied"
+	elseif myRole() == result.winner then
+		headline = "You win the round"
+	else
+		headline = result.winner .. " wins the round"
+	end
+
+	local subtitleText = string.format(
+		"Builder %d pts (%d/%d pieces survived)  ·  Attacker %d pts (%s)",
+		result.builderPoints,
+		result.piecesSurvived,
+		result.piecesTotal,
+		result.attackerPoints,
+		REASON_TEXT[result.reason] or result.reason
+	)
+	show(headline, subtitleText, true)
 end
 
 local function onMatchResult(result)
@@ -134,7 +151,7 @@ local function onMatchResult(result)
 			otherScore = wins
 		end
 	end
-	show(headline, string.format("Final score  —  You: %d   Opponent: %d", myScore, otherScore), false)
+	show(headline, string.format("Final score  —  You: %d pts   Opponent: %d pts", myScore, otherScore), false)
 end
 
 function ResultBanner.start()

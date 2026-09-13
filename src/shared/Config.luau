@@ -57,8 +57,24 @@ local SHIELD_DISTANCE = PRINCESS_DISTANCE - SHIELD_CLEARANCE
 
 -- Fixed, scripted shot order -- the Attacker no longer chooses a weapon
 -- (session 007, overrides spec's free choice). ShotsPerTurn derives from this
--- so the two can never drift apart.
-local SHOT_SEQUENCE = { "Catapult", "Catapult", "Ballista" }
+-- so the two can never drift apart. One more of each added (session 012
+-- playtest feedback: still too hard to bring a wall down even after the
+-- catapult mass retune) -- kept the original shape (catapults first to break
+-- the wall, ballista last to finish off what's exposed), just longer.
+local SHOT_SEQUENCE = { "Catapult", "Catapult", "Catapult", "Ballista", "Ballista" }
+
+-- Scoring (session 012): replaces the binary round win/loss with points. The
+-- Builder scores per surviving wall piece -- body-level, not by original
+-- placement, since one placement can already split into several independent
+-- bodies (session 008) and BlockManager already tracks bodies flatly, not
+-- grouped by placement. The Attacker scores a fixed bonus for toppling the
+-- Princess, tuned to roughly a quarter of the *theoretical* maximum wall
+-- score -- worst-case fragmentation, every piece splitting into single-cell
+-- bodies (PieceCount * PieceMaxCells) -- not the typical actual body count,
+-- which is usually lower once random pieces fuse into fewer, larger bodies.
+local POINTS_PER_SURVIVING_BLOCK = 1
+local MAX_WALL_SCORE = PIECE_COUNT * PIECE_MAX_CELLS * POINTS_PER_SURVIVING_BLOCK
+local PRINCESS_KILL_POINTS = math.round(MAX_WALL_SCORE / 4)
 
 -- The platform is exactly as wide as the build zone -- no side margin
 -- (session 009: a narrower build zone left open lanes down both sides of the
@@ -148,9 +164,19 @@ local Config = {
 	CatapultMinAngle = 15, -- degrees
 	CatapultMaxAngle = 50,
 	CatapultProjectileSize = Vector3.new(1.6, 1.6, 1.6),
-	CatapultProjectileMass = 35, -- heavy relative to the ballista's ball
+	-- 35 -> 43.75 (+25%, session 012 playtest feedback: not knocking down walls
+	-- well enough). Mass, not force/velocity -- momentum on impact scales with
+	-- mass, and mass doesn't affect trajectory under Roblox's gravity (same
+	-- principle as the ballista's speed-only tuning above), so this hits harder
+	-- without moving where a given aim/force actually lands.
+	CatapultProjectileMass = 43.75,
 	CatapultProjectileFriction = 0.5,
 	CatapultProjectileRestitution = 0.45,
+
+	-- Scoring (session 012)
+	PointsPerSurvivingBlock = POINTS_PER_SURVIVING_BLOCK,
+	PrincessKillPoints = PRINCESS_KILL_POINTS, -- ~1/4 of the theoretical max wall score
+	BlockTopplingAngle = 60, -- degrees a placed body may drift from how it was placed before it no longer counts as "survived" -- mirrors PrincessTopplingAngle's mechanism (angle vs. a reference orientation), tuned separately since a wall piece leaning partway over reads differently than the Princess needing to go fully flat
 
 	-- Match
 	ShotSequence = SHOT_SEQUENCE, -- mandated weapon per shot, in order; no free choice (session 007)

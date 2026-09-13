@@ -26,7 +26,7 @@ export type Roles = {
 	attacker: number,
 }
 
-export type Score = { [number]: number } -- UserId -> rounds won
+export type Score = { [number]: number } -- UserId -> cumulative points
 
 export type StatePayload = {
 	phase: Phase,
@@ -41,8 +41,12 @@ export type StatePayload = {
 }
 
 export type RoundResult = {
-	winner: Role,
 	reason: "survived" | "toppled",
+	piecesSurvived: number,
+	piecesTotal: number,
+	builderPoints: number,
+	attackerPoints: number,
+	winner: Role?, -- higher-scoring role this round; nil on a tie
 }
 
 export type MatchResult = {

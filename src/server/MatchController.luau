@@ -34,7 +34,7 @@ local state = {
 	shotsRemaining = 0,
 	shieldAvailable = true,
 	round = 1,
-	score = {}, -- UserId -> rounds won
+	score = {}, -- UserId -> cumulative points (session 012)
 }
 
 local function rebuildRoles()
@@ -192,21 +192,51 @@ local function awaitContinue(advance)
 	task.delay(Config.RoundEndHoldTime, proceed)
 end
 
--- Decide the round once PrincessMonitor's state is settled: dead means the
--- Attacker wins, survived means the Builder does. Tallies the score, reports
--- the outcome, then holds (see awaitContinue) before ending the match or
--- swapping roles into the next round.
+-- Decide the round once PrincessMonitor's state is settled (session 012:
+-- points, not a single deterministic winner). The Builder scores per
+-- surviving wall piece; the Attacker scores a fixed bonus if the Princess
+-- toppled. Both add into state.score (cumulative across the match, keyed by
+-- UserId -- unaffected by the SWAP that follows). Reports the breakdown, then
+-- holds (see awaitContinue) before ending the match or swapping roles.
 local function finishRound()
 	local dead = PrincessMonitor.isDead()
 	local reason = if dead then PrincessMonitor.reason() else "survived"
-	local winnerRole = if dead then "Attacker" else "Builder"
 	PrincessMonitor.disarm()
 
-	local winnerUserId = state.roles[string.lower(winnerRole)]
-	state.score[winnerUserId] = (state.score[winnerUserId] or 0) + 1
+	local piecesSurvived = BlockManager.survivingCount()
+	local piecesTotal = BlockManager.totalCount()
+	local builderPoints = piecesSurvived * Config.PointsPerSurvivingBlock
+	local attackerPoints = if dead then Config.PrincessKillPoints else 0
 
-	Remotes.RoundResult:FireAllClients({ winner = winnerRole, reason = reason })
-	print(string.format("[server] RESOLVE: round %d -> %s wins (%s)", state.round, winnerRole, reason))
+	local builderUserId = state.roles.builder
+	local attackerUserId = state.roles.attacker
+	state.score[builderUserId] = (state.score[builderUserId] or 0) + builderPoints
+	state.score[attackerUserId] = (state.score[attackerUserId] or 0) + attackerPoints
+
+	local winnerRole = nil
+	if builderPoints > attackerPoints then
+		winnerRole = "Builder"
+	elseif attackerPoints > builderPoints then
+		winnerRole = "Attacker"
+	end
+
+	Remotes.RoundResult:FireAllClients({
+		reason = reason,
+		piecesSurvived = piecesSurvived,
+		piecesTotal = piecesTotal,
+		builderPoints = builderPoints,
+		attackerPoints = attackerPoints,
+		winner = winnerRole,
+	})
+	print(string.format(
+		"[server] RESOLVE: round %d -> Builder %d pts (%d/%d pieces), Attacker %d pts (%s)",
+		state.round,
+		builderPoints,
+		piecesSurvived,
+		piecesTotal,
+		attackerPoints,
+		reason
+	))
 
 	awaitContinue(if state.round >= Config.RoundsPerMatch then finishMatch else swapRoles)
 end

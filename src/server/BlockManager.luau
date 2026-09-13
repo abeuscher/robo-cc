@@ -255,6 +255,7 @@ function BlockManager.placeCurrent(centre, rotation, flipped)
 		body.CustomPhysicalProperties = PROPS
 		body.CFrame = CFrame.new(centre) * CFrame.Angles(0, 0, math.rad(90 * rotation)) * pivotDelta
 		body:SetAttribute("BlockId", nextId)
+		body:SetAttribute("PlacedCFrame", body.CFrame)
 		body.Parent = blocksFolder()
 
 		nextId += 1
@@ -274,6 +275,31 @@ function BlockManager.releaseAll()
 		part.Anchored = false
 		part:SetNetworkOwner(nil)
 	end
+end
+
+-- Every body placed this round, regardless of whether it's still standing --
+-- the round's maximum possible piece score (session 012).
+function BlockManager.totalCount()
+	return #placedParts
+end
+
+-- How many placed bodies are still "standing" at round end (session 012):
+-- within Config.BlockTopplingAngle of the orientation they were placed in.
+-- Compared against each body's own placement CFrame, not world up -- a
+-- piece's placement rotation (quarter turns about Z) is a deliberate BUILD-
+-- phase choice, not a topple, so only rotation picked up since placement
+-- counts. Body-level, matching totalCount() -- one Builder placement can
+-- already be several independent bodies (session 008) with no shared fate.
+function BlockManager.survivingCount()
+	local count = 0
+	for _, part in placedParts do
+		local placedCFrame = part:GetAttribute("PlacedCFrame")
+		local _, angle = placedCFrame:ToObjectSpace(part.CFrame):ToAxisAngle()
+		if math.deg(angle) <= Config.BlockTopplingAngle then
+			count += 1
+		end
+	end
+	return count
 end
 
 return BlockManager
