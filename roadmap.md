@@ -487,16 +487,45 @@ tuning iterations; user's assessment after the shot-sequence extension was "Okay
 Weapon Spin & Trajectory/Bounce (Pass 13) was drafted as this session's own close-time precondition
 once the playtest looked good, per the established cadence.
 
-### Pass 13 — Weapon Spin & Trajectory/Bounce
-Adds spin to firing (harder to aim accurately) and reworks trajectory/bounce feel for one or both
-weapons — likely real angular velocity at launch plus a per-frame Magnus-style force to actually
-curve the arc, not a cosmetic-only effect. Scoped separately from Pass 10-12 since it's real
-physics feature work with its own tuning cycle, harder to get feeling right than anything built so
-far.
+### Pass 13 — Weapon Spin & Trajectory/Bounce — **done (session 013)**
+Added real spin to the catapult only — the ballista keeps no spin at all, preserving its
+spec-locked flat-trajectory identity (Open Gate decision). `WeaponManager.fire()` sets an initial
+`AssemblyAngularVelocity` about the vertical axis and attaches a per-frame Magnus-style
+`VectorForce`, recomputed every Heartbeat from the ball's live velocity and removed on first
+`Touched` (`CatapultMaxSpin`, `CatapultMagnusCoefficient`, the latter an acceleration coefficient
+so the curve stays mass-independent, same principle as gravity). This actually curves the arc
+sideways, not a cosmetic-only spinning mesh.
+The interaction design changed substantially from the brief's own open question (aimed vs.
+randomized spin, and what input it takes): rather than a discrete key control, the session settled
+on a **three-stage, same-button launch sequence** — first click locks aim and runs the power
+meter as before; second click freezes power (ballista fires immediately, unchanged) or, for the
+catapult, opens a second small meter that oscillates left-right continuously, faster the harder
+the power swing was; third click freezes spin and fires. Letting the power meter run out still
+cancels the shot; letting the spin meter run out instead fires anyway, pinned to full spin on the
+right — a deliberate asymmetry, not an oversight. `AttackInput`'s predictive trace was extended to
+apply the identical per-step curving math the server does, so the crosshair and dashed line curve
+live with the oscillating meter rather than staying a straight-line approximation.
+**Done:** the catapult's shot visibly curves and the crosshair preview tracks it in real time
+through the new spin stage; the ballista fires exactly as before, with no spin stage of its own.
+Playtested green with two players; user's assessment was "this works as expected and the game is
+starting to balance a bit." Ballista Elevation (Pass 15, mirroring this session's spin-meter
+mechanic for the ballista's launch angle) was added to the roadmap directly from this session's
+close, not from its own playtest.
 
 ### Pass 14 — Tune, then launch
 Playtest and adjust `Config` by feel (order below). Then publish and play in the real
 client.
+
+### Pass 15 — Ballista Elevation (Ramp)
+Adds a small elevation/ramp control to the ballista, set the same way session 13 built catapult
+spin: the third click of the same launch-meter sequence, a small meter that raises and lowers
+(oscillating, lock it with a click) rather than the catapult's left-right spin. Lets the
+ballista's shot launch at a higher angle than dead flat off the ground, instead of a fixed flat
+trajectory. Gives both weapons a second control axis on their third click, where before only the
+catapult had one. Worth flagging, not deciding now: spec calls the ballista's flat trajectory
+"blocked by any standing wall... cannot arc over" as its core identity -- an elevation control
+pushes against that, so how much arc to allow (and whether it should still be blocked by a wall
+in its path) is an Open Gate question for that session, not assumed here.
 
 ### Deferred — structural placement rules (not yet scheduled)
 BUILD currently lets the Builder drop a block into any free, in-bounds cell, including

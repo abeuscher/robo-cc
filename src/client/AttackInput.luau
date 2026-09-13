@@ -7,15 +7,21 @@
 -- projectile launches with) and turns green when that impact is a wall
 -- block; a light dashed line sketches the path to it.
 --
--- Both weapons fire off the same two-click launch meter (right side of
--- screen). First click locks the current aim, hides the 3D targeting, and runs
--- the fill bar linearly from empty to full and back to empty once; a target
--- tick marks the fill to aim for -- the force needed to reach the point you
--- aimed at for the catapult, always the top for the ballista (more power,
--- harder hit). Second click freezes the bar wherever it is and fires at that
--- power. Let the bar run out untouched and it resets to idle with no shot --
--- press again for a fresh attempt. Everything sent is intent -- the server
--- clamps force/angle and owns the projectile.
+-- Both weapons fire off the same launch meter (right side of screen), one
+-- button pressed in sequence rather than several different ones. First click
+-- locks the current aim, hides the 3D targeting, and runs the fill bar
+-- linearly from empty to full and back to empty once; a target tick marks the
+-- fill to aim for -- the force needed to reach the point you aimed at for the
+-- catapult, always the top for the ballista (more power, harder hit). Second
+-- click freezes the bar wherever it is. For the ballista that fires
+-- immediately; the catapult (session 013) instead moves to a small spin meter
+-- above the power one, oscillating left-right faster the harder the power
+-- swing was -- a third click freezes it and fires with that spin, curving the
+-- shot. Let the power bar run out untouched and it resets to idle with no shot
+-- (press again for a fresh attempt); let the spin bar run out instead and it
+-- still fires, pinned to full spin on the right -- only power has a safe
+-- cancel. Everything sent is intent -- the server clamps force/angle/spin and
+-- owns the projectile.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -50,6 +56,18 @@ local TRACE_RANGE = 140
 -- original 3.4s (session 012 playtest feedback).
 local METER_LEG_TIME = 2.4
 
+-- Catapult spin stage (session 013): a second, small meter that only appears
+-- for the catapult, right after power freezes. It oscillates left-right on a
+-- continuous loop (unlike the power meter, which runs once and stops) -- how
+-- fast depends on how hard the power swing was, so a big swing is harder to
+-- land a clean spin on. Same button as the rest of the sequence: freezing it
+-- fires; letting it run out doesn't cancel like the power meter does, it
+-- fires pinned to full spin on the right. UI feel, not gameplay balance, so
+-- these live here rather than in Config.
+local SPIN_OSC_MIN_FREQ = 0.5 -- Hz, at the weakest locked-in power
+local SPIN_OSC_MAX_FREQ = 2 -- Hz, at the strongest locked-in power
+local SPIN_TIMEOUT = 3 -- seconds before an un-frozen spin stage auto-fires
+
 local CROSSHAIR_COLOR = Color3.fromRGB(255, 230, 120)
 local CROSSHAIR_HIT_COLOR = Color3.fromRGB(100, 230, 130)
 local DASH_COLOR = Color3.fromRGB(255, 255, 255)
@@ -66,9 +84,15 @@ local crosshairFrames = {}
 local dashes = {}
 
 local meterGui, meterFill, meterTargetLine
+local spinTrack, spinIndicator
 local fillTween, fillConn
-local swinging = false
-local lockedWeapon, lockedDirection, lockedAngle
+
+-- "idle" (aiming, nothing locked yet) -> "power" (first click made, power
+-- swinging) -> "spin" (catapult only: second click made, spin oscillating).
+-- A third click (or the spin timeout) fires and returns to "idle".
+local stage = "idle"
+local lockedWeapon, lockedDirection, lockedAngle, lockedForce
+local spinStartClock, spinFreq, currentSpinValue = nil, nil, 0
 
 local state = {
 	weapon = "Ballista",
@@ -223,6 +247,67 @@ local function makeMeter()
 	return gui, fill, targetLine
 end
 
+-- The catapult-only spin meter: a small horizontal track sitting just above
+-- the power track's top edge, with a thin centre tick (zero spin) and a
+-- sliding indicator. Starts hidden -- AttackInput.update / beginSpinStage
+-- toggle it.
+local function makeSpinMeter(parentGui)
+	local track = Instance.new("Frame")
+	track.Name = "SpinTrack"
+	track.AnchorPoint = Vector2.new(1, 1)
+	track.Position = UDim2.new(1, -22, 0.5, -176) -- above the power track's top edge (centre 0.5, half-height 160), plus a gap
+	track.Size = UDim2.fromOffset(110, 16)
+	track.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+	track.BackgroundTransparency = 0.25
+	track.BorderSizePixel = 0
+	track.Visible = false
+	track.Parent = parentGui
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(0, 6)
+	trackCorner.Parent = track
+
+	local centreTick = Instance.new("Frame")
+	centreTick.Name = "Centre"
+	centreTick.AnchorPoint = Vector2.new(0.5, 0.5)
+	centreTick.Position = UDim2.fromScale(0.5, 0.5)
+	centreTick.Size = UDim2.new(0, 2, 1, 4)
+	centreTick.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+	centreTick.BorderSizePixel = 0
+	centreTick.Parent = track
+
+	local indicator = Instance.new("Frame")
+	indicator.Name = "Indicator"
+	indicator.AnchorPoint = Vector2.new(0.5, 0.5)
+	indicator.Position = UDim2.fromScale(0.5, 0.5)
+	indicator.Size = UDim2.new(0, 8, 1, 8)
+	indicator.BackgroundColor3 = Color3.fromRGB(255, 170, 80)
+	indicator.BorderSizePixel = 0
+	indicator.ZIndex = 2
+	indicator.Parent = track
+	local indicatorCorner = Instance.new("UICorner")
+	indicatorCorner.CornerRadius = UDim.new(0, 4)
+	indicatorCorner.Parent = indicator
+
+	return track, indicator
+end
+
+-- Moves the spin indicator to `frac` (-1 = farthest left, 1 = farthest
+-- right) across the track.
+local function updateSpinIndicator(frac)
+	spinIndicator.Position = UDim2.fromScale(0.5 + math.clamp(frac, -1, 1) * 0.5, 0.5)
+end
+
+-- Linear triangle wave in [-1, 1]: starts at -1, sweeps to 1 at the half
+-- period, back to -1 at the full period, and repeats -- same "linear, no
+-- bounce" feel as the power meter's own tween, just looping.
+local function triangleWave(elapsed, period)
+	local phase = (elapsed % period) / period
+	if phase < 0.5 then
+		return -1 + 4 * phase
+	end
+	return 3 - 4 * phase
+end
+
 -- Each weapon's launch-meter range: catapult force, ballista muzzle speed.
 local function forceRange(weapon)
 	if weapon == "Ballista" then
@@ -355,14 +440,19 @@ end
 -- TRACE_RANGE without a hit). Both weapons are now real physics bodies under
 -- the same gravity (session 009) -- the ballista's shot really does drop,
 -- however subtly, so it needs the same stepped treatment the catapult's arc
--- always did; only the initial velocity differs between them.
-local function stepTrace(origin, velocity)
+-- always did; only the initial velocity differs between them. `spinVector`
+-- (session 013, catapult only) mirrors WeaponManager's per-frame Magnus force
+-- step for step, so the preview curves exactly as the real shot will.
+local function stepTrace(origin, velocity, spinVector)
 	local gravity = Workspace.Gravity
 	local params = traceParams()
 	local points = { origin }
 	local pos = origin
 	for _ = 1, TRACE_MAX_STEPS do
 		velocity -= Vector3.yAxis * gravity * TRACE_DT
+		if spinVector then
+			velocity += spinVector:Cross(velocity) * Config.CatapultMagnusCoefficient * TRACE_DT
+		end
 		local nextPos = pos + velocity * TRACE_DT
 		local hit = Workspace:Raycast(pos, nextPos - pos, params)
 		if hit then
@@ -378,27 +468,29 @@ local function stepTrace(origin, velocity)
 	return points, pos, nil
 end
 
-local function traceShot(weapon, direction, force, angleDeg)
+local function traceShot(weapon, direction, force, angleDeg, spin)
 	local origin = Config.muzzleOrigin(weapon)
 	if weapon == "Ballista" then
-		return stepTrace(origin, ballistaVelocity(direction, force))
+		return stepTrace(origin, ballistaVelocity(direction, force), nil)
 	end
-	return stepTrace(origin, catapultVelocity(direction, force, angleDeg))
+	local spinVector = if spin and spin ~= 0 then Vector3.new(0, spin, 0) else nil
+	return stepTrace(origin, catapultVelocity(direction, force, angleDeg), spinVector)
 end
 
 -- Traces a shot and updates the crosshair + dashed line from the result.
-local function showTrace(weapon, direction, force, angleDeg)
-	local points, impact, hitInstance = traceShot(weapon, direction, force, angleDeg)
+local function showTrace(weapon, direction, force, angleDeg, spin)
+	local points, impact, hitInstance = traceShot(weapon, direction, force, angleDeg, spin)
 	crosshairPart.Position = impact
 	crosshairGui.Enabled = true
 	setCrosshairHit(hitInstance ~= nil and hitInstance:GetAttribute("BlockId") ~= nil)
 	drawDashes(points)
 end
 
--- Stops any in-progress swing: disconnects the completion handler first so
--- cancelling the tween can't re-trigger it, cancels the tween, and resets the
--- bar to empty. Shared by a natural miss, a release, and teardown.
-local function resetMeter()
+-- Stops just the power tween/connection, leaving the fill bar wherever it was
+-- (so it stays visible, frozen, through the catapult's spin stage) rather than
+-- zeroing it. Shared by freezing into the spin stage and by the full reset
+-- below.
+local function stopPowerTween()
 	if fillConn then
 		fillConn:Disconnect()
 		fillConn = nil
@@ -407,22 +499,34 @@ local function resetMeter()
 		fillTween:Cancel()
 		fillTween = nil
 	end
-	swinging = false
+end
+
+-- Full stop: any in-progress power or spin stage, bars zeroed/hidden, back to
+-- idle. Shared by a natural power-meter timeout (cancels the shot), and by
+-- after a shot actually fires.
+local function resetMeter()
+	stopPowerTween()
+	stage = "idle"
 	if meterFill then
 		meterFill.Size = UDim2.fromScale(1, 0)
+	end
+	if spinTrack then
+		spinTrack.Visible = false
 	end
 end
 
 -- First click: locks the weapon, aim, and (for the catapult) angle, sets the
 -- target tick, hides the 3D targeting (crosshair + dashed line) for the
 -- duration of the swing, and runs the fill bar up to the top and back down
--- once, linearly. Click again anywhere in that pass to freeze it; let it run
--- out and it just resets to idle -- no shot, press again for a fresh attempt.
+-- once, linearly. Click again anywhere in that pass to freeze it; let the bar
+-- run out untouched and it resets to idle -- no shot, press again for a fresh
+-- attempt (this timeout behaviour is unique to the power stage -- the spin
+-- stage below fires instead of cancelling).
 local function beginSwing(direction)
 	lockedWeapon = state.weapon
 	lockedDirection = direction
 	lockedAngle = state.angle
-	swinging = true
+	stage = "power"
 	crosshairGui.Enabled = false
 	hideDashesFrom(1)
 
@@ -447,29 +551,77 @@ local function beginSwing(direction)
 	fillTween:Play()
 end
 
--- Second click: freezes the bar wherever it is, converts that fill to the
--- locked weapon's force/speed, and fires.
-local function releaseSwing()
-	local weapon = lockedWeapon
-	local force = fractionForce(weapon, currentFillFraction())
-	local direction, angle = lockedDirection, lockedAngle
+-- Sends the locked shot to the server and returns to idle. `spin` is only
+-- meaningful for the catapult; the ballista always fires with none.
+local function fireLockedShot(spin)
+	local weapon, direction, angle, force = lockedWeapon, lockedDirection, lockedAngle, lockedForce
 	resetMeter()
 
 	Remotes.FireWeapon:FireServer({
 		direction = direction,
 		force = force,
 		angle = if weapon == "Catapult" then angle else 0,
+		spin = if weapon == "Catapult" then spin else 0,
 	})
 end
 
--- Every rendered frame while active. Mid-swing, aim is locked and the 3D
--- targeting is hidden (beginSwing turned it off) -- nothing to update, just the
--- meter itself. Otherwise it previews the shot the current aim would produce:
--- for the catapult that's the force needed to reach the cursor (also what sets
--- the target tick); the ballista previews at full power, matching its
--- always-aim-for-the-top target.
+-- Third click (catapult only): freezes the spin meter wherever it currently
+-- reads and fires at that spin.
+local function freezeSpinAndFire()
+	fireLockedShot(currentSpinValue * Config.CatapultMaxSpin)
+end
+
+-- Starts the spin stage: oscillation speed scales with how hard the just-
+-- frozen power swing was, so a full-power swing is harder to time a clean
+-- spin on than a soft one.
+local function beginSpinStage()
+	stage = "spin"
+	spinStartClock = os.clock()
+	local powerFraction = forceFraction("Catapult", lockedForce)
+	spinFreq = SPIN_OSC_MIN_FREQ + (SPIN_OSC_MAX_FREQ - SPIN_OSC_MIN_FREQ) * powerFraction
+	currentSpinValue = -1
+	spinTrack.Visible = true
+	updateSpinIndicator(currentSpinValue)
+end
+
+-- Second click: freezes the power bar wherever it is (left visible, not
+-- zeroed) and converts that fill to the locked weapon's force/speed. The
+-- catapult moves on to the spin stage; the ballista, which never spins,
+-- fires immediately -- unchanged from before the spin stage existed.
+local function freezePowerAndAdvance()
+	stopPowerTween()
+	lockedForce = fractionForce(lockedWeapon, currentFillFraction())
+	if lockedWeapon == "Catapult" then
+		beginSpinStage()
+	else
+		fireLockedShot(0)
+	end
+end
+
+-- Every rendered frame while active. Three cases: mid power-swing, nothing to
+-- update but the meter's own tween. Mid spin-stage (catapult only), advance
+-- the oscillator, move its indicator, and re-show the 3D trace at the live
+-- spin value so the curve preview actually sweeps as the meter does -- or
+-- auto-fire if the stage has run past SPIN_TIMEOUT unfrozen. Otherwise (idle)
+-- preview the shot the current aim would produce: for the catapult that's the
+-- force needed to reach the cursor (also what sets the target tick, with no
+-- spin yet since it isn't chosen until the swing sequence starts); the
+-- ballista previews at full power, matching its always-aim-for-the-top target.
 local function onRender()
-	if swinging then
+	if stage == "power" then
+		return
+	end
+
+	if stage == "spin" then
+		local elapsed = os.clock() - spinStartClock
+		if elapsed >= SPIN_TIMEOUT then
+			currentSpinValue = 1 -- un-frozen: fires pinned to full spin, right side
+			freezeSpinAndFire()
+			return
+		end
+		currentSpinValue = triangleWave(elapsed, 1 / spinFreq)
+		updateSpinIndicator(currentSpinValue)
+		showTrace("Catapult", lockedDirection, lockedForce, lockedAngle, currentSpinValue * Config.CatapultMaxSpin)
 		return
 	end
 
@@ -491,32 +643,34 @@ local function onRender()
 	end
 end
 
--- Keyboard and left-click while active.
--- Mid-swing: only a left-click registers, and it releases the meter.
--- Otherwise: Q/E nudge the catapult angle (unused by the ballista), left-click
--- starts the swing for whichever weapon is currently mandated.
+-- Keyboard and left-click while active. The whole fire sequence is the same
+-- button in a row -- click to lock aim and start the power swing, click again
+-- to freeze power (and, for the catapult, move on to the spin stage), click a
+-- third time to freeze spin and fire. Q/E only nudge the catapult angle before
+-- the sequence starts -- once locked, angle can't change mid-shot.
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
 		return
 	end
 
-	if swinging then
-		if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-			releaseSwing()
+	if inputObject.UserInputType ~= Enum.UserInputType.MouseButton1 then
+		if stage == "idle" then
+			if inputObject.KeyCode == Enum.KeyCode.Q then
+				state.angle = math.clamp(state.angle - ANGLE_STEP, Config.CatapultMinAngle, Config.CatapultMaxAngle)
+				publish()
+			elseif inputObject.KeyCode == Enum.KeyCode.E then
+				state.angle = math.clamp(state.angle + ANGLE_STEP, Config.CatapultMinAngle, Config.CatapultMaxAngle)
+				publish()
+			end
 		end
 		return
 	end
 
-	if inputObject.KeyCode == Enum.KeyCode.Q then
-		state.angle = math.clamp(state.angle - ANGLE_STEP, Config.CatapultMinAngle, Config.CatapultMaxAngle)
-		publish()
-	elseif inputObject.KeyCode == Enum.KeyCode.E then
-		state.angle = math.clamp(state.angle + ANGLE_STEP, Config.CatapultMinAngle, Config.CatapultMaxAngle)
-		publish()
-	elseif inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-		if shotsRemaining <= 0 then
-			return
-		end
+	if stage == "power" then
+		freezePowerAndAdvance()
+	elseif stage == "spin" then
+		freezeSpinAndFire()
+	elseif shotsRemaining > 0 then
 		local direction = currentAimDirection()
 		if direction and direction.Magnitude > 1e-3 then
 			beginSwing(direction.Unit)
@@ -536,6 +690,7 @@ function AttackInput.start()
 	end
 	if not meterGui then
 		meterGui, meterFill, meterTargetLine = makeMeter()
+		spinTrack, spinIndicator = makeSpinMeter(meterGui)
 	end
 	WeaponView.start()
 end

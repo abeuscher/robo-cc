@@ -13,6 +13,7 @@
 -- so a landed, at-rest ball still gets cleared at the next round's reset.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
@@ -26,6 +27,36 @@ local PROJECTILE_COLOR = Color3.fromRGB(255, 170, 80)
 
 -- Every projectile spawned this round, for clearAll() to walk.
 local spawned = {}
+
+-- Catapult balls currently spinning, keyed by part: { spin = Vector3, force =
+-- VectorForce }. A single Heartbeat recomputes each entry's curving force
+-- every frame from the ball's *current* velocity (a real Magnus force depends
+-- on live velocity, not the launch velocity), until the ball's first contact
+-- removes it -- "active only while airborne" per the brief.
+local magnusActive = {}
+
+-- Attaches a per-frame curving force to a catapult ball already carrying
+-- angular velocity `spin` (about the world Y axis). Removed on first Touched
+-- (landed or hit something) rather than a timer, since that's the real
+-- boundary between "in flight" and not.
+local function attachMagnus(part, spin)
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = part
+
+	local force = Instance.new("VectorForce")
+	force.Attachment0 = attachment
+	force.RelativeTo = Enum.ActuatorRelativeTo.World
+	force.Force = Vector3.zero
+	force.Parent = part
+
+	magnusActive[part] = { spin = spin, force = force }
+
+	local touchedConn
+	touchedConn = part.Touched:Connect(function()
+		touchedConn:Disconnect()
+		magnusActive[part] = nil
+	end)
+end
 
 local function projectilesFolder()
 	local root = Arena.root()
@@ -127,18 +158,31 @@ function WeaponManager.clearAll()
 		part:Destroy()
 	end
 	spawned = {}
+	magnusActive = {}
 end
 
 -- Spawn, unanchor, and launch a real projectile. Caller has already validated
 -- and consumed the shot. Unanchor before SetNetworkOwner(nil) (it errors on
 -- an anchored part) -- same ordering BlockManager.releaseAll() uses -- then
 -- set the initial velocity; Roblox's own physics engine owns everything after
--- that.
-function WeaponManager.fire(weapon, direction, force, angle)
+-- that. `spin` (rad/s about the vertical axis) only ever applies to the
+-- catapult -- the ballista keeps its flat, spin-free identity regardless of
+-- what the client sends.
+function WeaponManager.fire(weapon, direction, force, angle, spin)
 	local part = makeProjectile(weapon, Config.muzzleOrigin(weapon))
 	part.Anchored = false
 	part:SetNetworkOwner(nil)
 	part.AssemblyLinearVelocity = launchVelocity(weapon, direction, force, angle)
+
+	if weapon == "Catapult" then
+		local clampedSpin = math.clamp(spin or 0, -Config.CatapultMaxSpin, Config.CatapultMaxSpin)
+		if clampedSpin ~= 0 then
+			local spinVector = Vector3.new(0, clampedSpin, 0)
+			part.AssemblyAngularVelocity = spinVector
+			attachMagnus(part, spinVector)
+		end
+	end
+
 	table.insert(spawned, part)
 end
 
@@ -155,6 +199,7 @@ local function onFireWeapon(player, payload)
 	end
 	local force = tonumber(payload.force) or 0
 	local angle = tonumber(payload.angle) or 0
+	local spin = tonumber(payload.spin) or 0
 
 	-- Read before consumeShot(), which advances the shot index.
 	local weapon = MatchController.currentWeapon()
@@ -165,12 +210,29 @@ local function onFireWeapon(player, payload)
 	if not MatchController.consumeShot() then
 		return
 	end
-	WeaponManager.fire(weapon, direction.Unit, force, angle)
+	WeaponManager.fire(weapon, direction.Unit, force, angle, spin)
+end
+
+-- Recomputes every airborne catapult ball's curving force each frame from its
+-- *current* velocity -- a real Magnus force tracks live velocity, not the
+-- launch velocity, so this can't be set once at fire() and left alone. Force
+-- is mass*acceleration so the tuned curve (Config.CatapultMagnusCoefficient)
+-- stays the same regardless of the ball's own mass.
+local function updateMagnus()
+	for part, entry in magnusActive do
+		if part.Parent then
+			local accel = entry.spin:Cross(part.AssemblyLinearVelocity) * Config.CatapultMagnusCoefficient
+			entry.force.Force = accel * part.AssemblyMass
+		else
+			magnusActive[part] = nil
+		end
+	end
 end
 
 function WeaponManager.start()
 	Remotes.FireWeapon.OnServerEvent:Connect(onFireWeapon)
 	MatchController.onRoundReset(WeaponManager.clearAll)
+	RunService.Heartbeat:Connect(updateMagnus)
 end
 
 return WeaponManager

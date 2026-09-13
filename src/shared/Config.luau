@@ -173,6 +173,15 @@ local Config = {
 	CatapultProjectileFriction = 0.5,
 	CatapultProjectileRestitution = 0.45,
 
+	-- Catapult spin (session 013): angular velocity about the vertical axis at
+	-- launch, plus a per-frame Magnus-style curving force while airborne (ends
+	-- on first contact) -- a real curve, not a cosmetic spin. Ballista keeps no
+	-- spin at all, preserving its flat-trajectory identity. The coefficient is
+	-- an acceleration, not a raw force, so the curve stays mass-independent --
+	-- the same reason gravity already doesn't depend on projectile mass.
+	CatapultMaxSpin = 10, -- rad/s at full spin; first-pass guess, tune by feel
+	CatapultMagnusCoefficient = 0.008, -- studs/s^2 per (rad/s * stud/s); first-pass guess, tune by feel
+
 	-- Scoring (session 012)
 	PointsPerSurvivingBlock = POINTS_PER_SURVIVING_BLOCK,
 	PrincessKillPoints = PRINCESS_KILL_POINTS, -- ~1/4 of the theoretical max wall score

@@ -19,6 +19,7 @@ export type ShotPayload = {
 	direction: Vector3,
 	force: number,
 	angle: number,
+	spin: number,
 }
 
 export type Roles = {
