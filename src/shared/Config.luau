@@ -29,31 +29,38 @@ local GAP_WIDTH = 40 -- firing distance across the trench; independently tuned, 
 local BUILD_ZONE_ORIGIN_Z = GAP_WIDTH / 2 + BLOCK_SIZE.Z / 2 -- world Z of the build zone's near edge
 
 -- Session 009 playtest feedback: doubled from the original 14 for balance.
--- The builder platform's own depth derives from this (below) so she keeps
--- clear of the back wall regardless of how far back she sits.
+-- The builder platform's own depth derives from this (below) so the Flag
+-- (session 015 -- replaces the Princess) keeps clear of the back wall
+-- regardless of how far back it sits. Kept as the anchor distance name per
+-- session 015's own brief -- it's still the single most important tuning
+-- value, just aimed at a different target now. Also doubles as the Flag's
+-- default spawn distance and the far edge of where the Builder can relocate
+-- it (below).
 local PRINCESS_DISTANCE = 28
-local PRINCESS_CLEARANCE = 10 -- platform kept behind her, before the boundary wall
-
--- Guard piece (session 010): a second, fixed physical obstacle between the
--- wall and the Princess, so a broken wall doesn't leave her a free target.
--- Sized bigger than her own footprint (below, in Arena) so a shot landing on
--- or near her is likely to meet the guard first. Sits GUARD_CLEARANCE studs
--- in front of her, on the same Z axis PrincessDistance already uses.
-local GUARD_SIZE = Vector3.new(BLOCK_SIZE.X * 1.5, BLOCK_SIZE.Y * 1.5, BLOCK_SIZE.Z)
-local GUARD_CLEARANCE = 6
-local GUARD_DISTANCE = PRINCESS_DISTANCE - GUARD_CLEARANCE
+local FLAG_CLEARANCE = 10 -- platform kept behind the Flag, before the boundary wall
+local FLAG_SIZE = Vector3.new(BLOCK_SIZE.X * 2, BLOCK_SIZE.Y * 4, BLOCK_SIZE.Z * 2) -- 2x2 cubes wide/deep, 4 cubes high
 
 -- Builder's timed shield (session 011): a once-per-round, Builder-activated
 -- physical barrier during ATTACK, timed against an incoming shot rather than
--- left up passively. Sits just in front of the Princess -- closer to her than
--- the guard, so it's a last line of defense if the guard's already been
--- knocked aside. Unlike the guard, it never unanchors: an unanchored shield
--- could itself get shoved into the Princess by a heavy hit and defeat the
--- point, so staying anchored for its whole (short) life is a deliberate,
--- scoped exception to "everything is real physics."
+-- left up passively. Sits just in front of the Flag. It never unanchors: an
+-- unanchored shield could itself get shoved into the Flag by a heavy hit and
+-- defeat the point, so staying anchored for its whole (short) life is a
+-- deliberate, scoped exception to "everything is real physics." Session 015:
+-- tracks the Flag's position (Arena.flagPosition()), computed fresh at each
+-- activation, since the Flag can now be relocated off the centre axis.
 local SHIELD_SIZE = Vector3.new(BLOCK_SIZE.X * 3, BLOCK_SIZE.Y * 2.5, BLOCK_SIZE.Z)
 local SHIELD_CLEARANCE = 3
-local SHIELD_DISTANCE = PRINCESS_DISTANCE - SHIELD_CLEARANCE
+
+-- Flag relocation (session 015): the Builder can move the Flag once, after
+-- the wall is confirmed, anywhere within this box -- free in X, bounded in Z.
+-- The far bound reuses PRINCESS_DISTANCE itself (the Flag can come closer but
+-- never sit farther back than the original tuned distance, so FLAG_CLEARANCE
+-- above still guarantees room behind it); the near bound keeps the Flag's own
+-- footprint at least one block-depth clear of the wall. The side bound leaves
+-- room for whichever of the Flag or the shield (which tracks the Flag's X
+-- once activated) is wider, so neither clips the boundary wall.
+local FLAG_PLACEMENT_MIN_DISTANCE = FLAG_SIZE.Z / 2 + BLOCK_SIZE.Z
+local FLAG_PLACEMENT_MAX_DISTANCE = PRINCESS_DISTANCE
 
 -- Fixed, scripted shot order -- the Attacker no longer chooses a weapon
 -- (session 007, overrides spec's free choice). ShotsPerTurn derives from this
@@ -67,14 +74,14 @@ local SHOT_SEQUENCE = { "Catapult", "Catapult", "Catapult", "Ballista", "Ballist
 -- Builder scores per surviving wall piece -- body-level, not by original
 -- placement, since one placement can already split into several independent
 -- bodies (session 008) and BlockManager already tracks bodies flatly, not
--- grouped by placement. The Attacker scores a fixed bonus for toppling the
--- Princess, tuned to roughly a quarter of the *theoretical* maximum wall
--- score -- worst-case fragmentation, every piece splitting into single-cell
--- bodies (PieceCount * PieceMaxCells) -- not the typical actual body count,
--- which is usually lower once random pieces fuse into fewer, larger bodies.
+-- grouped by placement. The Attacker scores a fixed bonus for a scoring Flag
+-- hit (session 015: a direct projectile hit only, not an incidental
+-- wall-collapse reveal) -- raised 15 -> 20 (was a quarter of the theoretical
+-- max wall score; now roughly a third of it) since the Flag is a harder,
+-- more deliberate target to actually connect with than the old tilt-check
+-- ever was.
 local POINTS_PER_SURVIVING_BLOCK = 1
-local MAX_WALL_SCORE = PIECE_COUNT * PIECE_MAX_CELLS * POINTS_PER_SURVIVING_BLOCK
-local PRINCESS_KILL_POINTS = math.round(MAX_WALL_SCORE / 4)
+local FLAG_KILL_POINTS = 20
 
 -- The platform is exactly as wide as the build zone -- no side margin
 -- (session 009: a narrower build zone left open lanes down both sides of the
@@ -83,7 +90,11 @@ local PRINCESS_KILL_POINTS = math.round(MAX_WALL_SCORE / 4)
 -- had no way to block that since the wall itself couldn't reach that far).
 -- The wall can now be built flush against the boundary wall on both sides.
 local platformHalfWidth = BUILD_ZONE_SIZE.X / 2
-local platformDepth = BUILD_ZONE_ORIGIN_Z + PRINCESS_DISTANCE + PRINCESS_CLEARANCE
+local platformDepth = BUILD_ZONE_ORIGIN_Z + PRINCESS_DISTANCE + FLAG_CLEARANCE
+
+-- Session 015: the wider of the Flag and the shield sets how far off-centre
+-- the Flag can sit without either one clipping the boundary wall.
+local FLAG_PLACEMENT_MAX_OFFSET_X = platformHalfWidth - math.max(FLAG_SIZE.X, SHIELD_SIZE.X) / 2
 
 local Config = {
 	-- Blocks
@@ -97,34 +108,33 @@ local Config = {
 	PieceCount = PIECE_COUNT, -- pieces issued per round
 
 	-- Arena
-	PrincessDistance = PRINCESS_DISTANCE, -- studs behind the build zone; the single most important tuning value
+	PrincessDistance = PRINCESS_DISTANCE, -- studs behind the build zone; the single most important tuning value (name kept -- session 015, now the Flag's default/max distance)
 	GapWidth = GAP_WIDTH,
-	PlatformSize = Vector3.new(platformHalfWidth * 2, 1, platformDepth), -- deep enough to keep the Princess clear of the back wall
-	PrincessSize = Vector3.new(2, 5, 2),
+	PlatformSize = Vector3.new(platformHalfWidth * 2, 1, platformDepth), -- deep enough to keep the Flag clear of the back wall
 	GroundLevel = 0, -- top surface of both platforms
 	GroundFriction = 0.8, -- high, so a landed ball settles instead of rolling indefinitely
 	GroundRestitution = 0.05,
 
-	-- Princess physics (session 009): she's a real unanchored body now, not a
-	-- static target -- these feed a PhysicalProperties the same way BlockMass
-	-- does for blocks.
-	PrincessMass = 60,
-	PrincessFriction = 0.7, -- resists sliding, but nothing here resists tipping
-	PrincessRestitution = 0.1,
-	PrincessTopplingAngle = 78, -- degrees from upright before she counts as knocked over (raised from 60 -- session 009 balance experiment: one clean hit was enough to finish her the instant the wall was gone)
+	-- The Flag (session 015, replaces the Princess): hidden from the Attacker
+	-- until struck, hit-or-not rather than a tilt check, so it stays a plain
+	-- anchored part -- no PhysicalProperties of its own needed.
+	FlagSize = FLAG_SIZE,
+	FlagKillPoints = FLAG_KILL_POINTS, -- Attacker bonus for a scoring (projectile) hit; ~1/3 of the theoretical max wall score
+	FlagCollapseSpeed = 2, -- studs/s a falling block must be moving to count as revealing the Flag by collapse, so resting contact doesn't trigger it
 
-	-- Guard piece (session 010): a fixed second obstacle, not a Builder-placed
-	-- piece. Reuses BlockFriction/BlockRestitution and the wall's own density
-	-- (in Arena) so it behaves exactly like a wall block -- knock it far
-	-- enough and it's out of the way, no special-cased "destroyed" state.
-	GuardSize = GUARD_SIZE,
-	GuardDistance = GUARD_DISTANCE, -- studs behind the build zone, same axis as PrincessDistance
+	-- Flag relocation (session 015): where the Builder can move it after
+	-- ConfirmBuild, before ATTACK. Free in X (within the box), bounded in Z --
+	-- see the derivation above each constant.
+	FlagPlacementMinDistance = FLAG_PLACEMENT_MIN_DISTANCE,
+	FlagPlacementMaxDistance = FLAG_PLACEMENT_MAX_DISTANCE,
+	FlagPlacementMaxOffsetX = FLAG_PLACEMENT_MAX_OFFSET_X,
 
 	-- Builder shield (session 011): a timed physical barrier, once per round,
 	-- Builder-activated during ATTACK. Stays anchored for its whole duration --
-	-- see note above SHIELD_SIZE.
+	-- see note above SHIELD_SIZE. Session 015: tracks the Flag, computed fresh
+	-- at each activation.
 	ShieldSize = SHIELD_SIZE,
-	ShieldDistance = SHIELD_DISTANCE, -- studs behind the build zone, same axis as PrincessDistance/GuardDistance
+	ShieldClearance = SHIELD_CLEARANCE,
 	ShieldDuration = 0.5, -- seconds the shield stays up once activated
 
 	-- Build grid (a vertical plane: X = columns, Y = rows, fixed world Z)
@@ -182,10 +192,17 @@ local Config = {
 	CatapultMaxSpin = 10, -- rad/s at full spin; first-pass guess, tune by feel
 	CatapultMagnusCoefficient = 0.008, -- studs/s^2 per (rad/s * stud/s); first-pass guess, tune by feel
 
-	-- Scoring (session 012)
+	-- Scoring (session 012). FlagKillPoints lives above with the rest of the
+	-- Flag's own constants.
 	PointsPerSurvivingBlock = POINTS_PER_SURVIVING_BLOCK,
-	PrincessKillPoints = PRINCESS_KILL_POINTS, -- ~1/4 of the theoretical max wall score
-	BlockTopplingAngle = 60, -- degrees a placed body may drift from how it was placed before it no longer counts as "survived" -- mirrors PrincessTopplingAngle's mechanism (angle vs. a reference orientation), tuned separately since a wall piece leaning partway over reads differently than the Princess needing to go fully flat
+	BlockTopplingAngle = 60, -- degrees a placed body may drift from how it was placed before it no longer counts as "survived"
+
+	-- Rainbow wall (session 015): every placement gets a distinct hue, evenly
+	-- spaced around the color wheel and sized to PieceCount so a later retune
+	-- of piece count can't leave the palette short or bunched. Fixed pastel
+	-- saturation/value -- only the hue varies.
+	WallPaletteSaturation = 0.45,
+	WallPaletteValue = 0.95,
 
 	-- Match
 	ShotSequence = SHOT_SEQUENCE, -- mandated weapon per shot, in order; no free choice (session 007)
@@ -201,6 +218,14 @@ local Config = {
 function Config.muzzleOrigin(weapon)
 	local x = if weapon == "Ballista" then -Config.MuzzleOffsetX else Config.MuzzleOffsetX
 	return Vector3.new(x, Config.GroundLevel + Config.MuzzleHeight, -(Config.GapWidth / 2))
+end
+
+-- The rainbow wall's per-placement color (session 015). `placementIndex` is
+-- 1-based, in issue order; hues are spaced evenly around the wheel sized to
+-- Config.PieceCount so a later retune can't leave it short or bunched.
+function Config.wallColor(placementIndex)
+	local hue = ((placementIndex - 1) % Config.PieceCount) / Config.PieceCount
+	return Color3.fromHSV(hue, Config.WallPaletteSaturation, Config.WallPaletteValue)
 end
 
 return Config

@@ -526,31 +526,38 @@ Pass 15 and Pass 16 below -- widening the lens, in code and in the roadmap, rath
 existing one. No `Config` value changed. If a numeric tuning pass is wanted later, it'll be scoped
 fresh as its own session, not resumed from here.
 
-### Pass 15 — Hidden Flag & Rainbow Wall
-Replaces the Princess with a **Flag**: same role as the ultimate target, but a different kill
-model and a new piece of hidden information. Queued from session 014's close, at the user's
-request. Two independent changes, bundled because both touch the wall/target presentation:
-- **The Flag.** Doesn't topple (no more `PrincessTopplingAngle`/tilt check) -- it's hit or it
-  isn't. Hidden from the Attacker until struck by *either* a projectile or a falling wall piece,
-  at which point it's revealed for the rest of the round -- but the Attacker's point bonus (raised
-  15 -> 20, still on top of the existing 1-point-per-surviving-block score) is earned only on a
-  direct **projectile** hit, not an incidental wall-collapse contact. That gives the Attacker a
-  real mechanism to force the reveal (break the wall onto it) separate from the mechanism that
-  actually scores. The Builder can reposition the Flag once after the wall is confirmed, before
-  ATTACK begins -- exact mechanism (click-to-relocate vs. a bounded drag, and whether it can move
-  off the Guard/Shield's shared central axis) is this session's own Open Gate question.
-  Concealment is real, not cosmetic: `BasePart.LocalTransparencyModifier` hides the Flag on the
-  Attacker's client alone (Builder and physics are unaffected), and the Attacker's own aim-assist
-  (crosshair + predictive trace in `AttackInput`) excludes it from its raycasts while hidden, so
-  the assist tools can't leak its position -- a real shot can still connect either way. This
-  reverts part of session 009's Princess rework back toward the pre-009 Touched-based hit model,
-  now applied to the Flag instead.
-- **Rainbow wall.** Every placed piece gets a distinct color from a fixed pastel palette ordered
-  like a rainbow (piece 1 of `PieceCount` red-ish, the last violet-ish), replacing the uniform
-  grey wall. Palette is generated, not hand-picked -- evenly spaced hues at a fixed
-  pastel saturation/value via `Color3.fromHSV`, sized to `Config.PieceCount` so it stays correct
-  if that's retuned again. Colors by placement order, not by body -- a piece that fractures into
-  several independent bodies (session 008) keeps them all the same color.
+### Pass 15 — Hidden Flag & Rainbow Wall — **done (session 015)**
+Replaced the Princess with a Flag: hit-or-not, no toppling (`PrincessMonitor` replaced outright by
+`FlagMonitor`, reverting to a `Touched`-based check, the model the Princess herself used before
+session 009). Hidden from the Attacker via `LocalTransparencyModifier` plus a raycast exclusion in
+`AttackInput` until struck by either a projectile (scores the raised bonus, 15 -> 20) or a falling
+wall piece past a new `Config.FlagCollapseSpeed` threshold (reveals only, scores nothing).
+Both Open Gate questions on relocation were settled toward the more expansive option, not the
+simpler one this entry originally floated: a single click-to-relocate (not a drag) that can move
+the Flag freely in 2D, not just along the Guard/Shield's shared axis. That turned out to require a
+real scope increase neither this entry nor the session's own brief anticipated: the Guard and
+Shield (sessions 010/011) had to stop being fixed points and start tracking wherever the Flag ends
+up, computed fresh each round (Guard) or at each activation (Shield). A new `POSITION` phase sits
+between BUILD and ATTACK for the relocation click itself (`RelocateFlag` remote,
+`MatchController.relocateFlag()`). Rainbow wall shipped as scoped: `Config.wallColor()` colors each
+placement from an HSV-generated palette sized to `PieceCount`, applied in
+`BlockManager.placeCurrent()`.
+Scope corrected mid-session, from a naming mix-up in playtest feedback: "remove the shield block in
+front of the flag" meant the session 010 Guard, not the session 011 Shield. The Guard is now gone
+entirely (built to track the Flag first, then removed outright once the mix-up surfaced); the
+Shield was restored, tracking the Flag's live position instead of a fixed distance. The Flag was
+also resized to 2x2x4 `BlockSize` cubes (from the Princess's old stud-based `Vector3.new(2, 5, 2)`).
+Two bugs found in the same round of feedback were fixed along the way: a placement-ghost part that
+defaulted to visible at the world origin for every client, and a `BuildInput` HUD preview that kept
+showing the last-placed piece instead of going blank once the queue emptied. A further request
+added a reveal animation (`FlagRevealEffect` -- a color flash plus a fading `Highlight`) once
+playtesting showed the reveal, though scored correctly, was easy to miss.
+**Done:** the wall goes up in distinct colors, the Flag stays hidden through early shots and
+reveals correctly on either cause, the Builder relocates it freely in one click before ATTACK, and
+the Attacker's raised bonus (20) scores only on a direct hit. Playtested across several rounds of
+iteration with the user; final assessment was "looking better." Session tooling was also added,
+unrelated to the pass itself: a `sessions/archived/` folder and a `close-session` step to keep only
+the 3 most recent session briefs in the main folder.
 
 ### Pass 16 — Two-Button Meters & Ballista Elevation
 Reworks the third-click stage's *control scheme* for both weapons, and gives the ballista its own

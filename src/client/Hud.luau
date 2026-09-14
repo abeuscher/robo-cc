@@ -29,6 +29,7 @@ local HIGHLIGHT_BG = Color3.fromRGB(255, 210, 120)
 
 local PHASE_NAMES = {
 	BUILD = "Build Phase",
+	POSITION = "Positioning Flag",
 	ATTACK = "Attack Phase",
 	RESOLVE = "Resolving…",
 	SWAP = "Swapping…",
@@ -315,6 +316,7 @@ local function render()
 	end
 
 	local inBuild = state.phase == "BUILD"
+	local inPosition = state.phase == "POSITION"
 	local inAttack = state.phase == "ATTACK"
 
 	phaseLabel.Text = PHASE_NAMES[state.phase] or state.phase
@@ -329,6 +331,7 @@ local function render()
 	end
 
 	local hintForBuilderBuild = inBuild and myRole == "Builder"
+	local hintForBuilderPosition = inPosition and myRole == "Builder"
 	local hintForBuilderAttack = inAttack and myRole == "Builder"
 	local hintForAttacker = inAttack and myRole == "Attacker"
 
@@ -347,11 +350,13 @@ local function render()
 	shieldLabel.Visible = hintForBuilderAttack
 	shieldLabel.Text = if state.shieldAvailable ~= false then "Shield ready  ·  press F" else "Shield used"
 
-	hintLabel.Visible = hintForBuilderBuild or hintForBuilderAttack or hintForAttacker
+	hintLabel.Visible = hintForBuilderBuild or hintForBuilderPosition or hintForBuilderAttack or hintForAttacker
 	if hintForAttacker then
 		hintLabel.Text = "mouse aim · Q/E angle (catapult) · C camera · click, click at meter target to launch"
 	elseif hintForBuilderAttack then
 		hintLabel.Text = "F to raise your shield — time it against the incoming shot"
+	elseif hintForBuilderPosition then
+		hintLabel.Text = "click the ground behind your wall to place the Flag — this is your only chance to move it"
 	else
 		hintLabel.Text = "click cell to place · R rotate · Z flip · Confirm Wall when done"
 	end

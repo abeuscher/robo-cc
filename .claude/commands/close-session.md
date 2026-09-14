@@ -21,6 +21,10 @@ Steps:
    entry to match. Mark the pass complete.
 3. **Confirm the next brief exists** at `sessions/(NNN+1). <Title> — Brief.md`. If more than
    one session was queued ahead, verify at least the immediate next.
-4. **Commit** on the `session-NNN` branch: stage the log, the roadmap edit, the next brief,
-   and any source changes not yet committed, then commit with a message naming the session.
-   Tell me it is done. Never push, never merge to main.
+4. **Archive old briefs.** Keep only the 3 most recent session briefs (by number, including
+   the one just closed and the next one drafted in step 3) in `sessions/`. Move any
+   `NNN. <Title> — Brief.md` older than that into `sessions/archived/` with `git mv` (create
+   the folder if it doesn't exist yet). Logs are never archived, regardless of age.
+5. **Commit** on the `session-NNN` branch: stage the log, the roadmap edit, the next brief,
+   any archived briefs, and any source changes not yet committed, then commit with a message
+   naming the session. Tell me it is done. Never push, never merge to main.

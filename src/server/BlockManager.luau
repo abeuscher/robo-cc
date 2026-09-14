@@ -34,7 +34,6 @@ local Arena = require(script.Parent.Arena)
 
 local BlockManager = {}
 
-local BLOCK_COLOR = Color3.fromRGB(150, 150, 150)
 -- Density from one sub-cube's mass and volume, applied to every block.
 local DENSITY = Config.BlockMass / (Config.BlockSize.X * Config.BlockSize.Y * Config.BlockSize.Z)
 local PROPS = PhysicalProperties.new(DENSITY, Config.BlockFriction, Config.BlockRestitution)
@@ -242,6 +241,12 @@ function BlockManager.placeCurrent(centre, rotation, flipped)
 	local halfWidth = span.X * Config.BlockSize.X / 2
 	local halfHeight = span.Y * Config.BlockSize.Y / 2
 
+	-- Rainbow wall (session 015): every cell of this placement shares one
+	-- color from the generated palette, keyed by placement order -- not by
+	-- body, so a piece that fractures into several independent bodies
+	-- (session 008) still reads as one placement.
+	local placementColor = Config.wallColor(queuePos)
+
 	for _, cells in components do
 		local body = buildBody(cells, halfWidth, halfHeight)
 		local pivotDelta = body.CFrame
@@ -250,7 +255,7 @@ function BlockManager.placeCurrent(centre, rotation, flipped)
 		if body:IsA("UnionOperation") then
 			body.UsePartColor = true
 		end
-		body.Color = BLOCK_COLOR
+		body.Color = placementColor
 		body.Material = Enum.Material.Concrete
 		body.CustomPhysicalProperties = PROPS
 		body.CFrame = CFrame.new(centre) * CFrame.Angles(0, 0, math.rad(90 * rotation)) * pivotDelta

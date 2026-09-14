@@ -3,11 +3,13 @@
 -- validation (role, phase, already-used) -- the same split WeaponManager has
 -- with consumeShot() -- this module only owns the physical part itself: where
 -- it sits, how long it stays up, and cleaning up a live one at round reset.
--- Unlike the guard piece (session 010) the shield never unanchors; it's a
--- static barrier for its whole life (Config.ShieldDuration), a deliberate,
--- scoped exception to "everything is real physics" settled at this session's
--- Open Gate -- an unanchored shield could itself get shoved into the Princess
--- by a heavy hit and defeat the point.
+-- It never unanchors; it's a static barrier for its whole life
+-- (Config.ShieldDuration), a deliberate, scoped exception to "everything is
+-- real physics" settled at session 011's Open Gate -- an unanchored shield
+-- could itself get shoved into the Flag by a heavy hit and defeat the point.
+-- Session 015: the Flag can be relocated off the centre axis, so the shield
+-- tracks wherever it currently sits (Arena.flagPosition()), computed fresh at
+-- each activation rather than from a fixed Config distance.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -24,10 +26,11 @@ local SHIELD_COLOR = Color3.fromRGB(120, 190, 255)
 local activePart = nil
 
 local function shieldPosition()
+	local flagPos = Arena.flagPosition()
 	return Vector3.new(
-		0,
+		flagPos.X,
 		Config.GroundLevel + Config.ShieldSize.Y / 2,
-		Config.BuildZoneOrigin.Z + Config.ShieldDistance
+		flagPos.Z - Config.ShieldClearance
 	)
 end
 

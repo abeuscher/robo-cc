@@ -1,7 +1,9 @@
 -- Shared type definitions. Phase, Role and the BUILD payloads are used this
 -- session; the shot payload is defined now and consumed when ATTACK lands.
 
-export type Phase = "BUILD" | "ATTACK" | "RESOLVE" | "SWAP"
+-- POSITION (session 015): a short beat between BUILD and ATTACK where the
+-- Builder relocates the Flag once, after the wall is confirmed.
+export type Phase = "BUILD" | "POSITION" | "ATTACK" | "RESOLVE" | "SWAP"
 
 export type Role = "Builder" | "Attacker"
 
@@ -20,6 +22,10 @@ export type ShotPayload = {
 	force: number,
 	angle: number,
 	spin: number,
+}
+
+export type RelocatePayload = {
+	position: Vector3, -- world point clicked; only X/Z matter, server clamps into the placement box
 }
 
 export type Roles = {
@@ -43,12 +49,15 @@ export type StatePayload = {
 	currentWeapon: Weapon?, -- mandated weapon for the shot about to fire; nil outside ATTACK
 	currentShape: PieceShape?, -- the held piece's shape; nil outside BUILD
 	shieldAvailable: boolean, -- whether the Builder's once-per-round shield is still unused
+	flagRevealed: boolean, -- session 015: whether the Flag has been struck yet this round (either cause) -- drives the Attacker-only concealment client-side
 	round: number,
 	score: Score,
 }
 
 export type RoundResult = {
-	reason: "survived" | "toppled",
+	-- collapsed: a wall piece fell onto the Flag -- reveals it, scores nothing.
+	-- struck: a direct projectile hit -- reveals it and scores FlagKillPoints.
+	reason: "survived" | "collapsed" | "struck",
 	piecesSurvived: number,
 	piecesTotal: number,
 	builderPoints: number,

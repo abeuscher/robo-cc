@@ -26,9 +26,11 @@ local BuildInput = {}
 
 local PLANE_Z = Config.BuildZoneOrigin.Z
 
+local EMPTY_SHAPE = {} -- shared blank shape, used once the queue is exhausted (or outside BUILD)
+
 local active = false
 local piecesRemaining = 0
-local pieceShape = {} -- the held piece's shape at rotation 0, unflipped -- mirrors StateChanged.currentShape
+local pieceShape = EMPTY_SHAPE -- the held piece's shape at rotation 0, unflipped -- mirrors StateChanged.currentShape
 local rotation = 0
 local flipped = false
 local ghostCubes = {} -- pool of translucent per-cell preview parts, grown as needed
@@ -241,9 +243,12 @@ function BuildInput.update(state)
 	-- A fresh piece arrives after every placement, well inside a single BUILD
 	-- phase -- this has to update on every broadcast, not just on the
 	-- activation transition (the same lesson session 007 needed for
-	-- AttackInput's currentWeapon).
+	-- AttackInput's currentWeapon). Once the queue is exhausted (or outside
+	-- BUILD entirely) state.currentShape comes back nil -- falling back to a
+	-- blank shape here, not the stale pieceShape, so the HUD's Current Block
+	-- preview actually goes blank instead of freezing on the last placed piece.
 	local previousShape = pieceShape
-	pieceShape = state.currentShape or pieceShape
+	pieceShape = state.currentShape or EMPTY_SHAPE
 	if pieceShape ~= previousShape then
 		publish()
 	end

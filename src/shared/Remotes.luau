@@ -9,6 +9,7 @@ local EVENT_NAMES = {
 	"StartRequested",
 	"PlaceBlock",
 	"ConfirmBuild",
+	"RelocateFlag",
 	"FireWeapon",
 	"ActivateShield",
 	"StateChanged",

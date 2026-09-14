@@ -77,6 +77,7 @@ local DASH_FILL = 0.55 -- fraction of each traced step drawn, leaving a gap
 local active = false
 local renderConn, inputConn
 local shotsRemaining = 0
+local flagRevealed = false -- session 015: mirrors StateChanged.flagRevealed
 
 local markerFolder
 local crosshairPart, crosshairGui
@@ -357,12 +358,28 @@ local function cameraRay()
 	return camera:ViewportPointToRay(mouse.X, mouse.Y)
 end
 
+local function flagPart()
+	local root = Workspace:FindFirstChild("ActiveRound")
+	return root and root:FindFirstChild("Flag")
+end
+
 -- Filter shared by the aim ray and the impact trace: skip the marker and the
--- local character so they never register as a hit.
+-- local character so they never register as a hit. Session 015: while the
+-- Flag is still hidden from this Attacker, it's excluded too -- otherwise the
+-- crosshair/dashed-line preview would snap to it and leak its position even
+-- though LocalTransparencyModifier keeps it invisible. A real shot can still
+-- physically connect either way; this only affects the assist tools.
 local function traceParams()
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { markerFolder, player.Character }
+	local exclude = { markerFolder, player.Character }
+	if not flagRevealed then
+		local flag = flagPart()
+		if flag then
+			table.insert(exclude, flag)
+		end
+	end
+	params.FilterDescendantsInstances = exclude
 	return params
 end
 
@@ -385,10 +402,11 @@ end
 -- Same as aimPoint, but with the wall excluded: the catapult "ignores wall
 -- height if aimed well" (spec), so standing close to a tall wall shouldn't let
 -- the wall itself block the player from aiming at what's behind it -- pointing
--- roughly at/over the wall now resolves to the ground or Princess beyond it,
--- not the wall's face. This only affects the range used for the target tick;
--- the real simulated arc (traceShot) still raycasts against blocks and will
--- correctly show a hit if the shot doesn't actually clear the wall.
+-- roughly at/over the wall now resolves to the ground or Flag beyond it, not
+-- the wall's face. This only affects the range used for the target tick; the
+-- real simulated arc (traceShot) still raycasts against blocks and will
+-- correctly show a hit if the shot doesn't actually clear the wall. Also
+-- excludes the Flag while it's hidden, same reasoning as traceParams().
 local function catapultAimPoint()
 	local ray = cameraRay()
 	if not ray then
@@ -400,6 +418,12 @@ local function catapultAimPoint()
 	local blocks = blocksFolder()
 	if blocks then
 		table.insert(exclude, blocks)
+	end
+	if not flagRevealed then
+		local flag = flagPart()
+		if flag then
+			table.insert(exclude, flag)
+		end
 	end
 	params.FilterDescendantsInstances = exclude
 	local hit = Workspace:Raycast(ray.Origin, ray.Direction * AIM_RANGE, params)
@@ -695,6 +719,22 @@ function AttackInput.start()
 	WeaponView.start()
 end
 
+-- Session 015: hides the Flag on this client alone (Builder's view and the
+-- underlying physics are unaffected) for as long as this player is the
+-- Attacker and it hasn't been revealed yet -- independent of ATTACK phase,
+-- since the Attacker could in principle be looking at the platform during
+-- BUILD/POSITION too. Runs on every StateChanged, not just the aiming
+-- active/inactive transition below.
+local function applyFlagConcealment(stateChanged)
+	flagRevealed = stateChanged.flagRevealed == true
+	local flag = flagPart()
+	if not flag then
+		return
+	end
+	local isAttackerRole = stateChanged.roles ~= nil and stateChanged.roles.attacker == player.UserId
+	flag.LocalTransparencyModifier = (isAttackerRole and not flagRevealed) and 1 or 0
+end
+
 -- Called on every StateChanged. Aiming is live only while phase == "ATTACK" and
 -- the local player is the Attacker. state.weapon mirrors the server-mandated
 -- currentWeapon -- there's no client choice -- and this has to happen even when
@@ -703,6 +743,7 @@ end
 -- render and input handlers and publishes the readout; on the transition out
 -- it disconnects them, cancels any in-progress swing, and hides everything.
 function AttackInput.update(stateChanged)
+	applyFlagConcealment(stateChanged)
 	shotsRemaining = stateChanged.shotsRemaining or 0
 
 	if stateChanged.currentWeapon and stateChanged.currentWeapon ~= state.weapon then

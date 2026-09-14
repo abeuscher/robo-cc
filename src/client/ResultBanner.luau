@@ -23,8 +23,9 @@ local player = Players.LocalPlayer
 local ResultBanner = {}
 
 local REASON_TEXT = {
-	survived = "the Princess survived",
-	toppled = "knocked off her feet",
+	survived = "the Flag was never found",
+	collapsed = "the wall gave it away, but no scoring hit landed",
+	struck = "a direct hit found the Flag",
 }
 
 local gui, container, title, subtitle, continueButton

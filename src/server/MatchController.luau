@@ -1,16 +1,18 @@
 -- The state machine. Tracks connected players in join order, assigns Builder /
 -- Attacker, positions their characters, and broadcasts StateChanged. Runs the
--- full round loop: BUILD (ConfirmBuild releases the wall and grants
--- ShotsPerTurn) -> ATTACK (each shot consumed through consumeShot(); a
--- PrincessMonitor kill can end the phase early too) -> RESOLVE (a settle beat
--- so the last shot actually lands before deciding the round, then broadcast
--- RoundResult and hold on it -- Config.RoundEndHoldTime, or sooner if a
--- player fires ContinueRequested -- so the outcome and camera stay put
--- instead of cutting straight to the next round) -> SWAP (flip roles, reset
--- the arena/blocks/projectiles, back to BUILD) for Config.RoundsPerMatch
--- rounds, then broadcast MatchResult and hold. Solo-permissive: with one
--- player that player is the Builder and the BUILD loop stays fully usable
--- (ATTACK just never completes without an Attacker to fire).
+-- full round loop: BUILD (ConfirmBuild releases the wall) -> POSITION
+-- (session 015: a short beat where the Builder relocates the Flag once, via
+-- RelocateFlag) -> ATTACK (each shot consumed through consumeShot(); a Flag
+-- hit no longer ends the phase early -- session 015's hit-or-not model has
+-- nothing left to end for) -> RESOLVE (a settle beat so the last shot
+-- actually lands before deciding the round, then broadcast RoundResult and
+-- hold on it -- Config.RoundEndHoldTime, or sooner if a player fires
+-- ContinueRequested -- so the outcome and camera stay put instead of cutting
+-- straight to the next round) -> SWAP (flip roles, reset the
+-- arena/blocks/projectiles, back to BUILD) for Config.RoundsPerMatch rounds,
+-- then broadcast MatchResult and hold. Solo-permissive: with one player that
+-- player is the Builder and the BUILD loop stays fully usable (ATTACK just
+-- never completes without an Attacker to fire).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,7 +22,7 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local Arena = require(script.Parent.Arena)
 local BlockManager = require(script.Parent.BlockManager)
-local PrincessMonitor = require(script.Parent.PrincessMonitor)
+local FlagMonitor = require(script.Parent.FlagMonitor)
 
 local MatchController = {}
 
@@ -89,6 +91,7 @@ local function broadcast()
 		currentWeapon = currentWeapon(),
 		currentShape = currentShape(),
 		shieldAvailable = state.shieldAvailable,
+		flagRevealed = FlagMonitor.isRevealed(),
 		round = state.round,
 		score = state.score,
 	})
@@ -148,9 +151,9 @@ local function runRoundResetHooks()
 	end
 end
 
--- BUILD setup for a round: reposition the Princess, clear any live
--- projectiles, reset the block queue, and grant a fresh block budget. Used
--- both for round 1 (from start()) and after every SWAP.
+-- BUILD setup for a round: reposition the Flag back to default, clear any
+-- live projectiles, reset the block queue, and grant a fresh block budget.
+-- Used both for round 1 (from start()) and after every SWAP.
 local function startRound()
 	Arena.resetRound()
 	runRoundResetHooks()
@@ -225,21 +228,22 @@ local function awaitContinue(advance)
 	task.delay(Config.RoundEndHoldTime, proceed)
 end
 
--- Decide the round once PrincessMonitor's state is settled (session 012:
--- points, not a single deterministic winner). The Builder scores per
--- surviving wall piece; the Attacker scores a fixed bonus if the Princess
--- toppled. Both add into state.score (cumulative across the match, keyed by
--- UserId -- unaffected by the SWAP that follows). Reports the breakdown, then
--- holds (see awaitContinue) before ending the match or swapping roles.
+-- Decide the round once FlagMonitor's state is settled (session 012: points,
+-- not a single deterministic winner). The Builder scores per surviving wall
+-- piece; the Attacker scores a fixed bonus only for a direct projectile hit
+-- on the Flag (session 015) -- a wall-collapse reveal earns nothing. Both add
+-- into state.score (cumulative across the match, keyed by UserId --
+-- unaffected by the SWAP that follows). Reports the breakdown, then holds
+-- (see awaitContinue) before ending the match or swapping roles.
 local function finishRound()
-	local dead = PrincessMonitor.isDead()
-	local reason = if dead then PrincessMonitor.reason() else "survived"
-	PrincessMonitor.disarm()
+	local reason = FlagMonitor.reason()
+	local scored = FlagMonitor.scored()
+	FlagMonitor.disarm()
 
 	local piecesSurvived = BlockManager.survivingCount()
 	local piecesTotal = BlockManager.totalCount()
 	local builderPoints = piecesSurvived * Config.PointsPerSurvivingBlock
-	local attackerPoints = if dead then Config.PrincessKillPoints else 0
+	local attackerPoints = if scored then Config.FlagKillPoints else 0
 
 	local builderUserId = state.roles.builder
 	local attackerUserId = state.roles.attacker
@@ -274,10 +278,12 @@ local function finishRound()
 	awaitContinue(if shouldEndMatch() then finishMatch else swapRoles)
 end
 
--- Enters RESOLVE and waits Config.ResolveSettleTime for physics to settle
--- (a last-shot topple can still kill the Princess after the shot itself
--- missed) before finishRound() reads the outcome. Guarded so a kill and the
--- last shot landing at the same moment only trigger this once.
+-- Enters RESOLVE and waits Config.ResolveSettleTime for physics to settle (a
+-- last-shot wall collapse can still reach the Flag after the shot itself
+-- missed) before finishRound() reads the outcome. Only ever reached by the
+-- shot counter hitting zero now (session 015: a Flag hit doesn't end ATTACK
+-- early the way a Princess kill used to -- there's no "she's dead" moment
+-- left to cut away to, just a hit-or-not scored at RESOLVE).
 local function beginResolve()
 	if state.phase ~= "ATTACK" then
 		return
@@ -291,14 +297,18 @@ local function beginAttack()
 	state.phase = "ATTACK"
 	state.shotsRemaining = Config.ShotsPerTurn
 	BlockManager.releaseAll()
-	Arena.releaseGuard()
-	PrincessMonitor.arm()
+	FlagMonitor.arm()
 	broadcast()
-	print(string.format("[server] BUILD confirmed, phase -> ATTACK (%d shots)", state.shotsRemaining))
+	print(string.format("[server] Flag positioned, phase -> ATTACK (%d shots)", state.shotsRemaining))
 end
 
-local function onPrincessDeath()
-	beginResolve()
+-- BUILD -> POSITION transition (session 015): the wall is confirmed, but
+-- ATTACK doesn't start until the Builder relocates the Flag (relocateFlag()
+-- below moves straight on to beginAttack() once it does).
+local function beginPosition()
+	state.phase = "POSITION"
+	broadcast()
+	print("[server] BUILD confirmed, phase -> POSITION")
 end
 
 function MatchController.getPhase()
@@ -355,6 +365,29 @@ function MatchController.confirmBuild(player)
 	if state.phase ~= "BUILD" or not MatchController.isBuilder(player) then
 		return
 	end
+	beginPosition()
+end
+
+-- The Builder's once-per-round Flag relocation (session 015). `payload.position`
+-- is the world point they clicked on the ground; only its X and Z matter.
+-- Clamped into Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance
+-- server-side regardless of what the client thought was valid, then hands
+-- straight off to ATTACK -- there's nothing else to wait for once the Flag is
+-- placed.
+function MatchController.relocateFlag(player, payload)
+	if state.phase ~= "POSITION" or not MatchController.isBuilder(player) then
+		return
+	end
+	if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" then
+		return
+	end
+	local offsetX = math.clamp(payload.position.X, -Config.FlagPlacementMaxOffsetX, Config.FlagPlacementMaxOffsetX)
+	local distance = math.clamp(
+		payload.position.Z - Config.BuildZoneOrigin.Z,
+		Config.FlagPlacementMinDistance,
+		Config.FlagPlacementMaxDistance
+	)
+	Arena.relocateFlag(offsetX, distance)
 	beginAttack()
 end
 
@@ -372,12 +405,18 @@ function MatchController.start()
 		addPlayer(player)
 	end
 
-	PrincessMonitor.onDeath(onPrincessDeath)
+	-- Broadcasts the instant the Flag is revealed, mid-turn, rather than
+	-- waiting for the next unrelated state change (mirrors the pattern
+	-- sessions 007/008 already established for the mandated weapon and the
+	-- held shape).
+	FlagMonitor.onReveal(broadcast)
 
 	Remotes.StartRequested.OnServerEvent:Connect(function(player)
 		print(string.format("[server] StartRequested from %s (%d)", player.Name, player.UserId))
 		broadcast()
 	end)
+
+	Remotes.RelocateFlag.OnServerEvent:Connect(MatchController.relocateFlag)
 
 	-- Either player can skip the post-round hold early; a stray click once
 	-- nothing is pending (already advanced, or too early -- before the settle

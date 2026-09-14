@@ -8,6 +8,8 @@ One session = one section of `roadmap.md`. Each session has a **brief** to start
 - `TEMPLATE-session-brief.md` — copy to `NNN. <Title> — Brief.md` at session start.
 - `TEMPLATE-session-log.md` — copy to `NNN. <Title> — Log.md` at session close.
 - `NNN. <Title> — Brief.md` / `— Log.md` — the actual session records, kept in git.
+- `archived/` — older session briefs, moved out of the main folder once they're more than 3
+  sessions old (kept in git, just relocated). Logs stay put regardless of age. See Flow below.
 
 ## Flow
 
@@ -18,7 +20,8 @@ One session = one section of `roadmap.md`. Each session has a **brief** to start
 3. **Work** the session. When implementation is done the agent syncs, runs a Studio
    playtest, and reports — then waits.
 4. **`/close-session`** — the agent writes the log, updates `roadmap.md`, drafts the next
-   brief, and commits on the session branch. No push, no merge to main.
+   brief, archives briefs more than 3 sessions old into `archived/`, and commits on the
+   session branch. No push, no merge to main.
 
 ## Branch naming
 

@@ -6,8 +6,10 @@
 -- part on Heartbeat instead, by design; session 009 replaces it with a real
 -- physics body so projectiles can persist and bounce after landing. A struck
 -- block's knockback is now real mass/velocity collision response, not a
--- manual ApplyImpulse -- and a struck Princess is no longer reported here at
--- all: PrincessMonitor watches her own tilt continuously instead.)
+-- manual ApplyImpulse -- and a struck Flag is no longer reported here at all:
+-- FlagMonitor watches it directly via Touched instead (session 015), reading
+-- the "Projectile" attribute every ball gets below to tell a real shot apart
+-- from a falling block or anything else.)
 --
 -- Every projectile fired this round is tracked, not just ones still moving,
 -- so a landed, at-rest ball still gets cleared at the next round's reset.
@@ -101,6 +103,7 @@ local function makeProjectile(weapon, origin)
 	part.Position = origin
 	local volume = (4 / 3) * math.pi * (size.X / 2) ^ 3
 	part.CustomPhysicalProperties = PhysicalProperties.new(mass / volume, friction, restitution)
+	part:SetAttribute("Projectile", true) -- lets FlagMonitor tell a real shot apart from a falling block or anything else (session 015)
 
 	local a0 = Instance.new("Attachment")
 	a0.Position = Vector3.new(0, size.Y * 0.4, 0)

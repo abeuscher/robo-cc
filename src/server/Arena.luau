@@ -2,11 +2,13 @@
 -- flat green ground spanning the whole play area (attacker side, the gap,
 -- builder side) ringed by grey boundary walls, marker parts a muted blue.
 -- reset() empties the folder; build() fills it -- called once at server start.
--- resetRound() is the lighter per-round path: it re-anchors and repositions
--- the Princess (session 009: ATTACK can leave her unanchored and tipped
--- over), leaving the static geometry and the Blocks folder untouched
--- (MatchController also runs BlockManager.resetQueue() and clears live
--- projectiles each round).
+-- resetRound() is the lighter per-round path: it puts the Flag back at its
+-- default position (session 015: the Builder can relocate the Flag each
+-- round, so this default is also what the Builder starts from before moving
+-- it; session 009's earlier note about ATTACK leaving the Princess unanchored
+-- no longer applies -- the Flag never unanchors, see below), leaving the
+-- static geometry and the Blocks folder untouched (MatchController also runs
+-- BlockManager.resetQueue() and clears live projectiles each round).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -17,17 +19,7 @@ local FOLDER_NAME = "ActiveRound"
 local STONE = Color3.fromRGB(128, 128, 128)
 local GRASS = Color3.fromRGB(76, 153, 51)
 local MARK = Color3.fromRGB(90, 110, 140)
-local PINK = Color3.fromRGB(255, 105, 180)
-local SLATE = Color3.fromRGB(80, 80, 95)
-
--- Density from PrincessMass and her own volume, the same way BlockManager
--- derives block density from BlockMass -- she's a real physical body now
--- (session 009), not just a static target.
-local PRINCESS_PROPS = PhysicalProperties.new(
-	Config.PrincessMass / (Config.PrincessSize.X * Config.PrincessSize.Y * Config.PrincessSize.Z),
-	Config.PrincessFriction,
-	Config.PrincessRestitution
-)
+local FLAG_COLOR = Color3.fromRGB(255, 105, 180)
 
 -- Density is irrelevant here -- the ground never moves -- only friction and
 -- restitution matter, so a landed projectile settles instead of rolling
@@ -35,11 +27,14 @@ local PRINCESS_PROPS = PhysicalProperties.new(
 -- once it's rolling without slipping, unless the surface itself grips it).
 local GROUND_PROPS = PhysicalProperties.new(1, Config.GroundFriction, Config.GroundRestitution)
 
--- The guard piece (session 010) behaves exactly like a wall block -- same
--- density (BlockMass at BlockSize's own volume, same formula BlockManager
--- uses), friction, and restitution, just a bigger fixed footprint.
-local BLOCK_DENSITY = Config.BlockMass / (Config.BlockSize.X * Config.BlockSize.Y * Config.BlockSize.Z)
-local GUARD_PROPS = PhysicalProperties.new(BLOCK_DENSITY, Config.BlockFriction, Config.BlockRestitution)
+-- The Flag's default position each round, before the Builder relocates it
+-- (session 015): centred, at the original PrincessDistance.
+local DEFAULT_FLAG_OFFSET_X = 0
+local DEFAULT_FLAG_DISTANCE = Config.PrincessDistance
+
+local function computeFlagPosition(offsetX, distance)
+	return Vector3.new(offsetX, Config.GroundLevel + Config.FlagSize.Y / 2, Config.BuildZoneOrigin.Z + distance)
+end
 
 local Arena = {}
 
@@ -181,77 +176,45 @@ function Arena.build()
 		).Parent = root
 	end
 
-	local princess = part(
-		"Princess",
-		Config.PrincessSize,
-		Vector3.new(
-			0,
-			Config.GroundLevel + Config.PrincessSize.Y / 2,
-			Config.BuildZoneOrigin.Z + Config.PrincessDistance
-		),
-		PINK
-	)
-	princess.CustomPhysicalProperties = PRINCESS_PROPS
-	princess.Parent = root
-
-	local guard = part(
-		"Guard",
-		Config.GuardSize,
-		Vector3.new(
-			0,
-			Config.GroundLevel + Config.GuardSize.Y / 2,
-			Config.BuildZoneOrigin.Z + Config.GuardDistance
-		),
-		SLATE,
-		nil,
-		Enum.Material.Slate
-	)
-	guard.CustomPhysicalProperties = GUARD_PROPS
-	guard.Parent = root
+	-- The Flag (session 015, replaces the Princess): hit-or-not, not toppled,
+	-- so it stays anchored for good -- no PhysicalProperties needed.
+	-- FlagMonitor watches it via Touched.
+	local flag =
+		part("Flag", Config.FlagSize, computeFlagPosition(DEFAULT_FLAG_OFFSET_X, DEFAULT_FLAG_DISTANCE), FLAG_COLOR)
+	flag.Parent = root
 
 	return root
 end
 
--- Per-round reset: re-anchors the Princess (ATTACK can leave her unanchored
--- and tipped over, session 009) and puts her back at her fixed spawn point,
--- upright. Anchoring first means there's no leftover velocity to clear --
--- PrincessMonitor.arm() unanchors her again at the next ATTACK start. The
--- guard piece (session 010) gets the same treatment -- ATTACK can leave it
--- unanchored and knocked wherever it ended up.
+-- Per-round reset: puts the Flag back at its default position (session 015 --
+-- the Builder relocates it fresh each round, in POSITION, starting from
+-- here). The Flag never unanchors, so there's no leftover velocity to clear.
 function Arena.resetRound()
 	local root = Arena.root()
-	local princess = root:FindFirstChild("Princess")
-	if princess then
-		princess.Anchored = true
-		princess.CFrame = CFrame.new(
-			0,
-			Config.GroundLevel + Config.PrincessSize.Y / 2,
-			Config.BuildZoneOrigin.Z + Config.PrincessDistance
-		)
-	end
-	local guard = root:FindFirstChild("Guard")
-	if guard then
-		guard.Anchored = true
-		guard.CFrame = CFrame.new(
-			0,
-			Config.GroundLevel + Config.GuardSize.Y / 2,
-			Config.BuildZoneOrigin.Z + Config.GuardDistance
-		)
+	local flag = root:FindFirstChild("Flag")
+	if flag then
+		flag.CFrame = CFrame.new(computeFlagPosition(DEFAULT_FLAG_OFFSET_X, DEFAULT_FLAG_DISTANCE))
 	end
 	return root
 end
 
--- ATTACK-phase transition. Unanchor first, then SetNetworkOwner(nil) (it
--- errors on an anchored part) -- same ordering BlockManager.releaseAll() and
--- PrincessMonitor.arm() use. Makes the guard a real, server-owned physics
--- body so it can actually be knocked down or aside, exactly like a wall
--- block -- no special-cased "destroyed" state.
-function Arena.releaseGuard()
-	local guard = Arena.root():FindFirstChild("Guard")
-	if guard then
-		guard.Anchored = false
-		guard:SetNetworkOwner(nil)
+-- Called once by the Builder during POSITION (session 015). `offsetX` and
+-- `distance` have already been validated/clamped by the caller against
+-- Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance.
+function Arena.relocateFlag(offsetX, distance)
+	local flag = Arena.root():FindFirstChild("Flag")
+	if not flag then
+		return
 	end
+	flag.CFrame = CFrame.new(computeFlagPosition(offsetX, distance))
+end
+
+-- The Flag's current world position -- ShieldManager reads this to keep the
+-- Builder's shield tracking the Flag (session 015), since it can no longer
+-- assume a fixed point.
+function Arena.flagPosition()
+	local flag = Arena.root():FindFirstChild("Flag")
+	return flag and flag.Position
 end
 
 return Arena
