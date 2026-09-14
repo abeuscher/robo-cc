@@ -1,7 +1,12 @@
 -- Builder-only placement. The Builder always holds exactly one piece --
 -- there's no pile to pick from and no picking a placed piece back up. The
 -- mouse ray is intersected with the vertical build plane (world Z =
--- BuildZoneOrigin.Z) and the ghost snaps to the hovered cell. Click a cell to
+-- BuildZoneOrigin.Z) and the ghost snaps to the hovered cell, clamped onto
+-- the grid (session 016) so it's visible and placeable anywhere the mouse is
+-- roughly pointed at the wall, not just while precisely over an in-bounds
+-- cell -- click anywhere and it places wherever the ghost is currently
+-- showing. The ghost is tinted the actual colour this placement will get on
+-- the wall (Config.wallColor), not a generic preview colour. Click a cell to
 -- place, R to cycle rotation (0-3 quarter turns), Z to mirror it left-right
 -- (its chirality flip -- an L-piece's mirror is a J-piece, which no rotation
 -- alone can reach). Confirm Wall ends BUILD at any time. Active only while
@@ -53,8 +58,8 @@ end
 -- Grows the ghost-cube pool to at least `count` parts. Each is a translucent
 -- preview cube, client-only (never replicated), non-colliding, and excluded
 -- from raycasts (CanQuery = false) so it can't interfere with its own
--- placement checks. Starts invisible; onRender repositions and shows the ones
--- it needs each frame.
+-- placement checks. Starts invisible; onRender repositions, recolors, and
+-- shows the ones it needs each frame.
 local function ensureGhostCubes(count)
 	for i = #ghostCubes + 1, count do
 		local cube = Instance.new("Part")
@@ -64,7 +69,6 @@ local function ensureGhostCubes(count)
 		cube.CanQuery = false
 		cube.CastShadow = false
 		cube.Transparency = 1
-		cube.Color = Color3.fromRGB(120, 200, 255)
 		cube.Size = Config.BlockSize
 		cube.Parent = Workspace
 		ghostCubes[i] = cube
@@ -77,14 +81,26 @@ local function hideGhost()
 	end
 end
 
+-- The colour this placement will actually get on the wall (session 016 --
+-- previously the ghost was a fixed generic blue, unrelated to the eventual
+-- placement colour). Mirrors Hud's own "Placing Block %d of %d" index math,
+-- and BlockManager.placeCurrent's queuePos -- both count the same way from
+-- state.blocksRemaining, 1-based in issue order.
+local function currentPlacementColor()
+	return Config.wallColor(Config.PieceCount - piecesRemaining + 1)
+end
+
 -- Shows the ghost as one cube per cell of the held piece's actual footprint
--- at `anchor`, rotated by `rotation` -- the real shape, not a bounding box.
+-- at `anchor`, rotated by `rotation` -- the real shape, not a bounding box --
+-- tinted the colour it'll actually be placed with.
 local function showGhostAt(anchor)
 	local cells = GridUtil.coveredCells(baseShape(), anchor, rotation)
 	ensureGhostCubes(#cells)
+	local color = currentPlacementColor()
 	for i, cell in cells do
 		local cube = ghostCubes[i]
 		cube.CFrame = CFrame.new(GridUtil.cellToWorld(Config.BuildZoneOrigin, cell))
+		cube.Color = color
 		cube.Transparency = 0.4
 	end
 	for i = #cells + 1, #ghostCubes do
@@ -136,9 +152,14 @@ local function cameraRay()
 end
 
 -- Intersects the ray with the vertical build plane (world Z = PLANE_Z) and
--- converts the hit point to an integer (column, row) cell via GridUtil. This
--- cell is the bottom-left anchor of the footprint. Returns nil if the ray is
--- parallel to the plane, points away from it, or the anchor is off the grid.
+-- converts the hit point to an integer (column, row) cell via GridUtil, then
+-- clamps it so the held piece's full rotated footprint always fits on the
+-- grid (session 016 -- previously this returned nil, hiding the ghost and
+-- refusing the click, the moment the raw cell fell even one column/row
+-- outside the grid; near an edge that made the piece hard to even see, let
+-- alone place). Now it snaps to the nearest valid position instead. Only
+-- returns nil when the ray can't be projected onto the plane at all --
+-- looking away from it, or exactly parallel.
 local function anchorUnderRay(ray)
 	local dz = ray.Direction.Z
 	if math.abs(dz) < 1e-4 then
@@ -148,28 +169,17 @@ local function anchorUnderRay(ray)
 	if t <= 0 then
 		return nil
 	end
-	local cell = GridUtil.worldToCell(Config.BuildZoneOrigin, ray.Origin + ray.Direction * t)
-	if not GridUtil.isInside(cell) then
-		return nil
-	end
-	return cell
-end
-
--- True when every cell of the held piece's footprint anchored at `anchor` is
--- on the grid. (Occupancy is the server's call; this is just the bounds check
--- that decides whether to show the ghost / send the request.)
-local function footprintFits(anchor)
-	for _, c in GridUtil.coveredCells(baseShape(), anchor, rotation) do
-		if not GridUtil.isInside(c) then
-			return false
-		end
-	end
-	return true
+	local raw = GridUtil.worldToCell(Config.BuildZoneOrigin, ray.Origin + ray.Direction * t)
+	local span = GridUtil.rotatedSpan(baseShape(), rotation)
+	local maxX = math.max(0, GridUtil.columns() - span.X)
+	local maxY = math.max(0, GridUtil.rows() - span.Y)
+	return Vector2.new(math.clamp(raw.X, 0, maxX), math.clamp(raw.Y, 0, maxY))
 end
 
 -- Runs every rendered frame while placement is active. Shows the ghost
--- snapped to the hovered footprint while a piece remains to place; hides it
--- once the queue is empty or the cell under the cursor doesn't fit.
+-- snapped to the hovered (and clamped-onto-grid) footprint while a piece
+-- remains to place; hides it only once the queue is empty or the ray can't
+-- be projected onto the build plane at all.
 local function onRender()
 	if piecesRemaining <= 0 then
 		hideGhost()
@@ -177,7 +187,7 @@ local function onRender()
 	end
 	local ray = cameraRay()
 	local anchor = ray and anchorUnderRay(ray)
-	if not anchor or not footprintFits(anchor) then
+	if not anchor then
 		hideGhost()
 		return
 	end
@@ -185,9 +195,10 @@ local function onRender()
 end
 
 -- Handles keyboard and left-click while placement is active. R cycles the held
--- piece's rotation, Z mirrors it left-right. A left click places it on the
--- hovered cell, if one remains and the cell fits. gameProcessed is true when
--- the UI already consumed the input.
+-- piece's rotation, Z mirrors it left-right. A left click places it wherever
+-- the ghost is currently showing (session 016 -- the same clamped anchor
+-- onRender used, so a visible ghost is always a placeable one). gameProcessed
+-- is true when the UI already consumed the input.
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
 		return
@@ -212,7 +223,7 @@ local function onInput(inputObject, gameProcessed)
 
 	local ray = cameraRay()
 	local anchor = ray and anchorUnderRay(ray)
-	if not anchor or not footprintFits(anchor) then
+	if not anchor then
 		return
 	end
 

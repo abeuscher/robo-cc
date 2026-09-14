@@ -11,7 +11,7 @@ local AttackInput = require(script:WaitForChild("AttackInput"))
 local ShieldInput = require(script:WaitForChild("ShieldInput"))
 local AttackCamera = require(script:WaitForChild("AttackCamera"))
 local BuildCamera = require(script:WaitForChild("BuildCamera"))
-local CameraIntro = require(script:WaitForChild("CameraIntro"))
+local PositionCamera = require(script:WaitForChild("PositionCamera"))
 
 local live = false
 local latestState = nil
@@ -28,6 +28,7 @@ Remotes.StateChanged.OnClientEvent:Connect(function(state)
 		ShieldInput.update(state)
 		AttackCamera.update(state)
 		BuildCamera.update(state)
+		PositionCamera.update(state)
 	end
 end)
 
@@ -46,6 +47,7 @@ local function begin()
 	ShieldInput.start()
 	AttackCamera.start()
 	BuildCamera.start()
+	PositionCamera.start()
 
 	if latestState then
 		Hud.update(latestState)
@@ -57,14 +59,15 @@ local function begin()
 		ShieldInput.update(latestState)
 		AttackCamera.update(latestState)
 		BuildCamera.update(latestState)
+		PositionCamera.update(latestState)
 	end
 end
 
+-- No animated intro (session 016 -- removed the overhead swoop): the moment
+-- Start is pressed, whichever fixed camera applies (BuildCamera for round 1's
+-- Builder) just engages immediately via the normal update() path below.
 TitleScreen.show(function()
 	print("[client] Start pressed")
 	Remotes.StartRequested:FireServer()
-	CameraIntro.playAndRelease()
 	begin()
 end)
-
-CameraIntro.start()

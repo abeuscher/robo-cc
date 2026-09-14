@@ -559,37 +559,84 @@ iteration with the user; final assessment was "looking better." Session tooling 
 unrelated to the pass itself: a `sessions/archived/` folder and a `close-session` step to keep only
 the 3 most recent session briefs in the main folder.
 
-### Pass 16 — Two-Button Meters & Ballista Elevation
-Reworks the third-click stage's *control scheme* for both weapons, and gives the ballista its own
-second axis on it for the first time. Supersedes session 013's oscillating-meter/freeze-click
-design for catapult spin (never independently tuned before this replaces it) and folds in what was
-previously a separate, simpler plan for ballista elevation, since both now share one interaction
-model. Queued from session 014's close, at the user's request.
-- **Two-button, timed input.** Instead of an auto-oscillating meter frozen by a click, the third
-  stage becomes a fixed **3-second window** (a 3-2-1 countdown displayed to the meter's right)
-  during which the Up/Down arrow keys (unused elsewhere in the game) nudge a dot -- continuously
-  while held, not one discrete step per press, so it reads as responsive rather than ticky. Letting
-  the window run out **auto-fires at whatever value the dot is currently at** -- if the player never
-  touches the keys, that's centered/flat, i.e. no spin, no elevation. Mirrors session 013's own
-  asymmetric timeout rule (fires rather than cancels), just re-grounded in the new control scheme.
-- **Catapult (spin):** a single horizontal line with a dot that starts centered and moves above or
-  below it -- above/below stand in for the same left/right curve direction the old meter produced,
-  just mapped onto Up/Down instead of a left-right oscillation.
-- **Ballista (elevation, new):** the same two-button window, visualized differently -- a flat
-  horizon line with a fulcrum, and a second segment that lifts off it proportional to how long
-  Up has been pressed, roughly a "less than" shape once elevated. Starts flat (matching the
-  ballista's current dead-flat launch). Still open, not decided here: spec calls the ballista's
-  flat trajectory "blocked by any standing wall... cannot arc over" as its core identity, so how
-  much arc this actually allows (and whether it's still blocked by a wall in its path) is that
-  session's own Open Gate question.
-- **HUD relayout.** All three meters (power, plus whichever of spin/elevation applies) move
-  together to the **left side** of the Attacker's screen and stay visible for the Attacker's whole
-  turn, not just mid-swing -- the spin/elevation meter sits at its rest position (centered dot /
-  flat horizon) from the start of the turn, not just popping in once the power meter freezes, so
-  its final position is never a surprise. The power meter itself doubles in both height and width;
-  its fill timing (`METER_LEG_TIME`) stays exactly the same, so the bar physically travels twice
-  the distance in the same time -- reads as faster without actually changing the timing constant
-  anything else keys off.
+### Pass 16 — Two-Button Meters & Ballista Elevation — **done (session 016)**
+Replaced session 013's oscillating-meter/freeze-click design for catapult spin with a shared,
+timed two-button window, and gave the ballista a real elevation axis on that same window for the
+first time. The three Open Gate questions were all settled toward the brief's own recommendations:
+ballista arc is **moderate, 0-20°** (`Config.BallistaMinAngle`/`MaxAngle`) -- a genuine lob that
+clears a short wall but not a tall one, softening spec's "cannot arc over" without erasing it, since
+blocking stays emergent (no separate rule was ever coded for it); Down only un-lifts back toward
+flat, never below it (the range's floor is 0, matching the "lifts off the horizon" visualization);
+and session 013's power-scaled difficulty coupling was not replaced -- the fixed window is treated
+as a fairness/readability win on its own. `AttackInput`'s whole `stage` machine, meter layout, and
+trajectory-preview math were rewritten to match (`triangleWave`/`SPIN_OSC_*`/`SPIN_TIMEOUT` all
+removed); `WeaponManager.launchVelocity`'s `Ballista` branch gained a vertical component, clamped
+server-side same as force/angle/spin always have been. Both meters moved to the Attacker's left and
+stay visible for the Attacker's whole turn at rest position; the power track
+doubled to 56x640 with `METER_LEG_TIME` untouched, and the spin/elevation meter sits *beside* it
+(same vertical centre) rather than stacked above it as the brief's own layout note assumed --
+stacking a second element above an already screen-tall, vertically-centred power track risked
+clipping off a short viewport, the exact risk the brief flagged to check for.
+
+Scope grew substantially past the original brief across several rounds of follow-up requests once
+the core rework read well, all in the same session:
+- **Score total.** The top-right score panel gained a third "Total" row (both players' cumulative
+  match points summed) alongside the existing per-player rows.
+- **Meter legibility.** The power meter gained a vertical "POWER METER" watermark behind the fill
+  (55% transparent, progressively covered as the bar rises), and the spin/elevation meter gained a
+  horizontal title below it reading "SPIN" or "PITCH" depending on which weapon it's currently
+  showing.
+- **Hidden Flag during BUILD/POSITION.** The Flag (session 015) is now invisible, non-colliding, and
+  non-queryable from `Arena.build()`/`resetRound()` onward, revealed only once actually placed
+  (`Arena.relocateFlag`/`showFlag`) -- it used to sit visible at its default spot the whole time the
+  wall was being built. Safe because `FlagMonitor`'s `Touched` handler was already gated on `armed`
+  (ATTACK through the RESOLVE settle beat only), so a hidden Flag being touched during BUILD/POSITION
+  was already a no-op before this.
+- **Fixed cameras for BUILD and POSITION.** In response to feedback that the Builder's free-look
+  camera, combined with the arena's depth and wall height, made it easy to end up unable to see what
+  you were doing -- and that the Builder's own character routinely blocked the view of the wall --
+  `BuildCamera` was rewritten from a one-time "snap to a good angle, then free-look" (session 011)
+  into a fully locked `Scriptable` camera for the whole BUILD phase: positioned outside the grid,
+  toward the gap, elevated, looking back at the grid and the Builder beyond it, so the grid is always
+  the nearest thing to the camera and the character can never occlude it. A new `PositionCamera`
+  applies the same locking technique during POSITION, framed on the whole Flag-placement box instead
+  of the grid, and hands back to ordinary free-look the moment POSITION ends. The opening camera
+  intro (`CameraIntro`, the overhead swoop into the first play camera) was removed outright at the
+  same time -- the game now opens directly on the locked BUILD camera for round 1's Builder, no
+  animation to sit through first.
+- **BUILD placement ghost.** Two related legibility/precision complaints, both in `BuildInput`: the
+  ghost preview was recolored from a fixed generic blue to the actual colour the piece will get on
+  the wall (`Config.wallColor`), and the hit area was expanded -- the ghost (and the click that
+  places it) used to disappear/refuse the instant the hovered cell fell even one column or row
+  outside the grid, making a piece hard to even see near an edge. It now clamps the anchor onto the
+  grid instead (`GridUtil.rotatedSpan`-aware) so a piece is visible almost anywhere near the wall and
+  a click always places wherever the ghost is currently showing.
+- **Gravity moved earlier, "Place Flag" button added.** `BlockManager.releaseAll()` moved from
+  `beginAttack()` to `beginPosition()` (`MatchController`) -- the wall becomes real physics the
+  moment BUILD is confirmed, not at ATTACK start, so the Builder can watch it actually settle before
+  committing to a Flag spot. `relocateFlag` no longer auto-advances to ATTACK -- it's repeatable, a
+  pure reposition -- and a new "Place Flag" button (bottom-middle, same slot `BuildInput`'s own
+  Confirm Wall uses) is the Builder's explicit advance, revealing the Flag even if it was never
+  clicked at all. `BlockManager.survivingCount()` compares against each body's placement orientation,
+  not a snapshot taken at ATTACK start, so moving the release earlier changes nothing about scoring.
+- **Scroll wheel as an alternate axis-window input.** The mouse wheel nudges the same spin/elevation
+  dot Up/Down does, a fixed step per notch, additive rather than a replacement -- harmless to leave
+  unbound from `ContextActionService`, since `AttackCamera`'s own `Scriptable` lock during ATTACK
+  already blocks the wheel's default camera-zoom behaviour.
+
+**Done:** both weapons fire through the new shared timed window, the ballista visibly lobs and
+strikes higher on a wall when elevated, the Flag stays concealed until actually placed, the Builder's
+camera is locked and unobstructed through both BUILD and POSITION, wall pieces are visible and
+placeable anywhere near the grid in their true color, gravity is applied as soon as the wall is
+confirmed with an explicit "Place Flag" advance, and the axis window responds to both the arrow keys
+and the scroll wheel. Iterated with the user across many rounds of hands-on Studio testing throughout
+the session rather than one single end-of-session playtest; feedback was positive at every checkpoint
+("Camera placement is good," "huge improvement," and a final "this is in good shape for the time
+being" after the last round of changes). No outstanding bugs were reported.
+Pass 16 was already the last scheduled entry in this section, and at close the user chose not to
+queue a next pass or draft its brief -- deliberately, so a fresh brief can be written from wherever
+the project stands whenever work resumes. Nothing is queued below except the long-deferred item that
+follows.
 
 ### Deferred — structural placement rules (not yet scheduled)
 BUILD currently lets the Builder drop a block into any free, in-bounds cell, including

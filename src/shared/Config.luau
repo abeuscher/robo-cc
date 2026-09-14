@@ -157,6 +157,14 @@ local Config = {
 	-- though the projectile is now a real, lightweight body (session 009).
 	BallistaMinVelocity = 190, -- floor for the launch meter; BallistaMuzzleVelocity is the ceiling
 	BallistaMuzzleVelocity = 320,
+	-- Elevation (session 016): the ballista's first real second axis, set via
+	-- the same timed dot window the catapult's spin uses. Min stays 0 (flat)
+	-- -- Down only un-lifts back toward flat, per the Open Gate decision, so
+	-- the range has no negative half. Max 20 degrees ("moderate" option at
+	-- the Open Gate): a genuine lob that can clear a short wall but not a
+	-- tall one, softening but not erasing spec's "cannot arc over" identity.
+	BallistaMinAngle = 0, -- degrees
+	BallistaMaxAngle = 20,
 	BallistaProjectileSize = Vector3.new(1, 1, 1),
 	BallistaProjectileMass = 6, -- light: soft momentum on impact even at high speed
 	BallistaProjectileFriction = 0.3,

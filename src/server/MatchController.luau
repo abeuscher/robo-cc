@@ -1,10 +1,14 @@
 -- The state machine. Tracks connected players in join order, assigns Builder /
 -- Attacker, positions their characters, and broadcasts StateChanged. Runs the
--- full round loop: BUILD (ConfirmBuild releases the wall) -> POSITION
--- (session 015: a short beat where the Builder relocates the Flag once, via
--- RelocateFlag) -> ATTACK (each shot consumed through consumeShot(); a Flag
--- hit no longer ends the phase early -- session 015's hit-or-not model has
--- nothing left to end for) -> RESOLVE (a settle beat so the last shot
+-- full round loop: BUILD (ConfirmBuild both ends BUILD and releases the wall
+-- into real physics -- session 016, moved up from ATTACK start so the
+-- Builder sees it actually settle) -> POSITION (session 015: a beat where the
+-- Builder repositions the Flag via RelocateFlag, as many times as they like
+-- -- session 016 dropped the old "one click both places and confirms" -- and
+-- advances to ATTACK with the new PlaceFlag button, confirmFlagPlacement) ->
+-- ATTACK (each shot consumed through consumeShot(); a Flag hit no longer ends
+-- the phase early -- session 015's hit-or-not model has nothing left to end
+-- for) -> RESOLVE (a settle beat so the last shot
 -- actually lands before deciding the round, then broadcast RoundResult and
 -- hold on it -- Config.RoundEndHoldTime, or sooner if a player fires
 -- ContinueRequested -- so the outcome and camera stay put instead of cutting
@@ -296,19 +300,22 @@ end
 local function beginAttack()
 	state.phase = "ATTACK"
 	state.shotsRemaining = Config.ShotsPerTurn
-	BlockManager.releaseAll()
 	FlagMonitor.arm()
 	broadcast()
 	print(string.format("[server] Flag positioned, phase -> ATTACK (%d shots)", state.shotsRemaining))
 end
 
--- BUILD -> POSITION transition (session 015): the wall is confirmed, but
--- ATTACK doesn't start until the Builder relocates the Flag (relocateFlag()
--- below moves straight on to beginAttack() once it does).
+-- BUILD -> POSITION transition. The wall is confirmed, so it becomes real
+-- physics right here (session 016 -- moved from beginAttack(); previously the
+-- Builder never saw whether their own wall actually stood on its own until
+-- shots were already being fired at it). ATTACK doesn't start until the
+-- Builder presses "Place Flag" (confirmFlagPlacement below) -- relocateFlag
+-- itself only repositions now, repeatable, and doesn't advance the phase.
 local function beginPosition()
 	state.phase = "POSITION"
+	BlockManager.releaseAll()
 	broadcast()
-	print("[server] BUILD confirmed, phase -> POSITION")
+	print("[server] BUILD confirmed, wall released, phase -> POSITION")
 end
 
 function MatchController.getPhase()
@@ -368,12 +375,14 @@ function MatchController.confirmBuild(player)
 	beginPosition()
 end
 
--- The Builder's once-per-round Flag relocation (session 015). `payload.position`
--- is the world point they clicked on the ground; only its X and Z matter.
--- Clamped into Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance
--- server-side regardless of what the client thought was valid, then hands
--- straight off to ATTACK -- there's nothing else to wait for once the Flag is
--- placed.
+-- The Builder's Flag relocation during POSITION. `payload.position` is the
+-- world point they clicked on the ground; only its X and Z matter. Clamped
+-- into Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance server-side
+-- regardless of what the client thought was valid. Session 016: repeatable
+-- now (no longer hands off to ATTACK itself) -- the wall is already live
+-- physics by the time POSITION starts, so the Builder may want to see it
+-- settle before committing to a spot, and can re-click as many times as they
+-- like; confirmFlagPlacement below is what actually advances.
 function MatchController.relocateFlag(player, payload)
 	if state.phase ~= "POSITION" or not MatchController.isBuilder(player) then
 		return
@@ -388,6 +397,17 @@ function MatchController.relocateFlag(player, payload)
 		Config.FlagPlacementMaxDistance
 	)
 	Arena.relocateFlag(offsetX, distance)
+end
+
+-- "Place Flag" button (session 016): the Builder's explicit advance out of
+-- POSITION. Reveals the Flag even if it was never clicked-to-relocate (it
+-- stays at its default position, still hidden, until either this or a
+-- relocation reveals it), then starts ATTACK.
+function MatchController.confirmFlagPlacement(player)
+	if state.phase ~= "POSITION" or not MatchController.isBuilder(player) then
+		return
+	end
+	Arena.showFlag()
 	beginAttack()
 end
 
@@ -417,6 +437,7 @@ function MatchController.start()
 	end)
 
 	Remotes.RelocateFlag.OnServerEvent:Connect(MatchController.relocateFlag)
+	Remotes.PlaceFlag.OnServerEvent:Connect(MatchController.confirmFlagPlacement)
 
 	-- Either player can skip the post-round hold early; a stray click once
 	-- nothing is pending (already advanced, or too early -- before the settle

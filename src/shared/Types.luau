@@ -20,8 +20,8 @@ export type PlacePayload = {
 export type ShotPayload = {
 	direction: Vector3,
 	force: number,
-	angle: number,
-	spin: number,
+	angle: number, -- catapult arc angle, or (session 016) ballista elevation -- no longer catapult-only
+	spin: number, -- catapult only; always 0 for the ballista
 }
 
 export type RelocatePayload = {

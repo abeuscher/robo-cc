@@ -7,25 +7,28 @@
 -- projectile launches with) and turns green when that impact is a wall
 -- block; a light dashed line sketches the path to it.
 --
--- Both weapons fire off the same launch meter (right side of screen), one
--- button pressed in sequence rather than several different ones. First click
--- locks the current aim, hides the 3D targeting, and runs the fill bar
--- linearly from empty to full and back to empty once; a target tick marks the
--- fill to aim for -- the force needed to reach the point you aimed at for the
--- catapult, always the top for the ballista (more power, harder hit). Second
--- click freezes the bar wherever it is. For the ballista that fires
--- immediately; the catapult (session 013) instead moves to a small spin meter
--- above the power one, oscillating left-right faster the harder the power
--- swing was -- a third click freezes it and fires with that spin, curving the
--- shot. Let the power bar run out untouched and it resets to idle with no shot
--- (press again for a fresh attempt); let the spin bar run out instead and it
--- still fires, pinned to full spin on the right -- only power has a safe
--- cancel. Everything sent is intent -- the server clamps force/angle/spin and
--- owns the projectile.
+-- Both weapons fire off the same launch meter (left side of screen since
+-- session 016), one button pressed in sequence rather than several different
+-- ones. First click locks the current aim, hides the 3D targeting, and runs
+-- the fill bar linearly from empty to full and back to empty once; a target
+-- tick marks the fill to aim for -- the force needed to reach the point you
+-- aimed at for the catapult, always the top for the ballista (more power,
+-- harder hit). Second click freezes the bar wherever it is and opens a fixed
+-- 3-second window (session 016, replaces session 013's power-scaled
+-- oscillator) shared by both weapons: held Up/Down (or the scroll wheel, a
+-- notch at a time) move a normalized dot continuously off its rest position
+-- -- above/below centre for the catapult's spin, lifting off flat for the
+-- ballista's new elevation axis. A
+-- third click freezes the dot and fires at its current value; letting the
+-- window run out instead fires anyway, at whatever the dot currently reads
+-- (centre/flat if never touched) -- only the power stage has a safe cancel.
+-- Everything sent is intent -- the server clamps force/angle/spin and owns
+-- the projectile.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -56,17 +59,25 @@ local TRACE_RANGE = 140
 -- original 3.4s (session 012 playtest feedback).
 local METER_LEG_TIME = 2.4
 
--- Catapult spin stage (session 013): a second, small meter that only appears
--- for the catapult, right after power freezes. It oscillates left-right on a
--- continuous loop (unlike the power meter, which runs once and stops) -- how
--- fast depends on how hard the power swing was, so a big swing is harder to
--- land a clean spin on. Same button as the rest of the sequence: freezing it
--- fires; letting it run out doesn't cancel like the power meter does, it
--- fires pinned to full spin on the right. UI feel, not gameplay balance, so
--- these live here rather than in Config.
-local SPIN_OSC_MIN_FREQ = 0.5 -- Hz, at the weakest locked-in power
-local SPIN_OSC_MAX_FREQ = 2 -- Hz, at the strongest locked-in power
-local SPIN_TIMEOUT = 3 -- seconds before an un-frozen spin stage auto-fires
+-- The shared timed axis window (session 016, replaces session 013's
+-- power-scaled oscillator): a second small meter, right after power freezes,
+-- shared by both weapons rather than catapult-only. Held Up/Down move a
+-- normalized "dot" level continuously off its rest position for
+-- WINDOW_DURATION seconds -- same button as the rest of the sequence:
+-- freezing it (a third click) fires at the dot's current value; letting the
+-- window run out instead of cancelling also fires, at whatever the dot
+-- currently reads (rest/zero if it was never touched) -- no power-scaled
+-- difficulty coupling replaces the old oscillator's frequency scaling, per
+-- the Open Gate decision to accept that loss. The scroll wheel moves the same
+-- dot too (one WHEEL_STEP per notch, added alongside Up/Down rather than
+-- replacing them) -- harmless to leave unsunk, since AttackCamera's own
+-- Scriptable lock already blocks the default camera-zoom behaviour the wheel
+-- would otherwise drive. UI feel, not gameplay balance, so these live here
+-- rather than in Config.
+local WINDOW_DURATION = 3 -- seconds before an un-frozen window auto-fires
+local DOT_RATE = 0.6 -- dot level units/second while Up or Down is held
+local WHEEL_STEP = 0.15 -- dot level units per scroll notch
+local AXIS_LEVER_MAX_DEGREES = 35 -- visual tilt of the ballista's lever at full elevation
 
 local CROSSHAIR_COLOR = Color3.fromRGB(255, 230, 120)
 local CROSSHAIR_HIT_COLOR = Color3.fromRGB(100, 230, 130)
@@ -75,7 +86,7 @@ local DASH_THICKNESS = 0.07
 local DASH_FILL = 0.55 -- fraction of each traced step drawn, leaving a gap
 
 local active = false
-local renderConn, inputConn
+local renderConn, inputConn, wheelConn
 local shotsRemaining = 0
 local flagRevealed = false -- session 015: mirrors StateChanged.flagRevealed
 
@@ -85,15 +96,16 @@ local crosshairFrames = {}
 local dashes = {}
 
 local meterGui, meterFill, meterTargetLine
-local spinTrack, spinIndicator
+local axisTrack, axisDot, axisLever, axisFulcrum, axisCountdown, axisTitle
 local fillTween, fillConn
 
 -- "idle" (aiming, nothing locked yet) -> "power" (first click made, power
--- swinging) -> "spin" (catapult only: second click made, spin oscillating).
--- A third click (or the spin timeout) fires and returns to "idle".
+-- swinging) -> "window" (second click made, the shared timed axis window
+-- open -- session 016, both weapons). A third click (or the window timing
+-- out) fires and returns to "idle".
 local stage = "idle"
 local lockedWeapon, lockedDirection, lockedAngle, lockedForce
-local spinStartClock, spinFreq, currentSpinValue = nil, nil, 0
+local windowStartClock, dotLevel = nil, 0
 
 local state = {
 	weapon = "Ballista",
@@ -199,9 +211,22 @@ local function drawDashes(points)
 	hideDashesFrom(shown + 1)
 end
 
--- Builds the launch meter: a vertical track on the right edge of the screen, a
--- fill bar that grows from the bottom, and a target tick marking the fill the
--- current aim needs. Shared by both weapons. Starts hidden.
+-- Builds the launch meter: a vertical track on the left edge of the screen
+-- (session 016 -- moved from the right, doubled in both dimensions so the
+-- bar physically travels twice the distance in the same METER_LEG_TIME,
+-- reading as faster without touching that constant), a fill bar that grows
+-- from the bottom, and a target tick marking the fill the current aim needs.
+-- Shared by both weapons. Enabled for the Attacker's whole turn (session
+-- 016), not just mid-swing.
+local POWER_TRACK_SIZE = Vector2.new(56, 640)
+-- Sits beside the power track (same vertical centre), not stacked above it --
+-- a 640px-tall, vertically-centred track already eats most of a short
+-- viewport's height, so stacking a second element above it risks clipping
+-- off-screen (the brief's own "check against a small viewport" warning).
+-- Beside it needs only its own small height, independent of the power
+-- track's.
+local AXIS_TRACK_GAP = 16 -- px between the power track's right edge and the axis meter
+
 local function makeMeter()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "LaunchMeter"
@@ -210,9 +235,9 @@ local function makeMeter()
 
 	local track = Instance.new("Frame")
 	track.Name = "Track"
-	track.AnchorPoint = Vector2.new(1, 0.5)
-	track.Position = UDim2.new(1, -36, 0.5, 0)
-	track.Size = UDim2.fromOffset(28, 320)
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.new(0, 36, 0.5, 0)
+	track.Size = UDim2.fromOffset(POWER_TRACK_SIZE.X, POWER_TRACK_SIZE.Y)
 	track.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
 	track.BackgroundTransparency = 0.25
 	track.BorderSizePixel = 0
@@ -220,6 +245,27 @@ local function makeMeter()
 	local trackCorner = Instance.new("UICorner")
 	trackCorner.CornerRadius = UDim.new(0, 6)
 	trackCorner.Parent = track
+
+	-- A vertical watermark running the length of the track, behind the fill
+	-- (ZIndex 0 < the fill's 1) so it's progressively covered as the bar
+	-- rises rather than always fully visible.
+	local watermark = Instance.new("TextLabel")
+	watermark.Name = "Watermark"
+	watermark.AnchorPoint = Vector2.new(0.5, 0.5)
+	watermark.Position = UDim2.fromScale(0.5, 0.5)
+	-- Sized in pixels off the track's height, not its width -- rotated 90°,
+	-- this label's own width becomes the on-screen vertical extent, so it
+	-- has to span the track's long axis, not its short one.
+	watermark.Size = UDim2.fromOffset(POWER_TRACK_SIZE.Y - 40, 34)
+	watermark.Rotation = 90
+	watermark.BackgroundTransparency = 1
+	watermark.Font = Enum.Font.GothamBold
+	watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
+	watermark.TextTransparency = 0.55
+	watermark.TextSize = 26
+	watermark.Text = "POWER METER"
+	watermark.ZIndex = 0
+	watermark.Parent = track
 
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
@@ -248,65 +294,144 @@ local function makeMeter()
 	return gui, fill, targetLine
 end
 
--- The catapult-only spin meter: a small horizontal track sitting just above
--- the power track's top edge, with a thin centre tick (zero spin) and a
--- sliding indicator. Starts hidden -- AttackInput.update / beginSpinStage
--- toggle it.
-local function makeSpinMeter(parentGui)
+-- The shared axis meter (session 016, replaces the catapult-only spin
+-- meter): a small track sitting beside the power track, at the same
+-- vertical centre, visible for the Attacker's whole turn at rest (catapult:
+-- centred dot; ballista: flat lever) so its final position is never a
+-- surprise the first time the window opens. Holds every visual for both
+-- weapons at once; updateAxisVisual toggles which set is shown. A countdown
+-- label sits to its right, blank outside the window stage.
+local function makeAxisMeter(parentGui)
 	local track = Instance.new("Frame")
-	track.Name = "SpinTrack"
-	track.AnchorPoint = Vector2.new(1, 1)
-	track.Position = UDim2.new(1, -22, 0.5, -176) -- above the power track's top edge (centre 0.5, half-height 160), plus a gap
-	track.Size = UDim2.fromOffset(110, 16)
+	track.Name = "AxisTrack"
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.new(0, 36 + POWER_TRACK_SIZE.X + AXIS_TRACK_GAP, 0.5, 0)
+	track.Size = UDim2.fromOffset(160, 60)
 	track.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
 	track.BackgroundTransparency = 0.25
 	track.BorderSizePixel = 0
-	track.Visible = false
 	track.Parent = parentGui
 	local trackCorner = Instance.new("UICorner")
 	trackCorner.CornerRadius = UDim.new(0, 6)
 	trackCorner.Parent = track
 
-	local centreTick = Instance.new("Frame")
-	centreTick.Name = "Centre"
-	centreTick.AnchorPoint = Vector2.new(0.5, 0.5)
-	centreTick.Position = UDim2.fromScale(0.5, 0.5)
-	centreTick.Size = UDim2.new(0, 2, 1, 4)
-	centreTick.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
-	centreTick.BorderSizePixel = 0
-	centreTick.Parent = track
+	-- The reference line: a centred horizontal tick for the catapult's dot to
+	-- move above/below, and the ballista's flat rest horizon.
+	local horizon = Instance.new("Frame")
+	horizon.Name = "Horizon"
+	horizon.AnchorPoint = Vector2.new(0.5, 0.5)
+	horizon.Position = UDim2.fromScale(0.5, 0.5)
+	horizon.Size = UDim2.new(1, -20, 0, 2)
+	horizon.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+	horizon.BorderSizePixel = 0
+	horizon.Parent = track
 
-	local indicator = Instance.new("Frame")
-	indicator.Name = "Indicator"
-	indicator.AnchorPoint = Vector2.new(0.5, 0.5)
-	indicator.Position = UDim2.fromScale(0.5, 0.5)
-	indicator.Size = UDim2.new(0, 8, 1, 8)
-	indicator.BackgroundColor3 = Color3.fromRGB(255, 170, 80)
-	indicator.BorderSizePixel = 0
-	indicator.ZIndex = 2
-	indicator.Parent = track
-	local indicatorCorner = Instance.new("UICorner")
-	indicatorCorner.CornerRadius = UDim.new(0, 4)
-	indicatorCorner.Parent = indicator
+	-- Catapult: a dot that starts centred on the horizon and moves above or
+	-- below it -- above/below stand in for the same left/right curve
+	-- direction the session 013 meter produced.
+	local dot = Instance.new("Frame")
+	dot.Name = "Dot"
+	dot.AnchorPoint = Vector2.new(0.5, 0.5)
+	dot.Position = UDim2.fromScale(0.5, 0.5)
+	dot.Size = UDim2.fromOffset(10, 10)
+	dot.BackgroundColor3 = Color3.fromRGB(255, 170, 80)
+	dot.BorderSizePixel = 0
+	dot.ZIndex = 2
+	dot.Parent = track
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
 
-	return track, indicator
+	-- Ballista: a fulcrum near the horizon's left end with a lever segment
+	-- that starts flat (overlapping the horizon) and lifts off it as Up is
+	-- held, roughly a "less than" shape once elevated.
+	local fulcrum = Instance.new("Frame")
+	fulcrum.Name = "Fulcrum"
+	fulcrum.AnchorPoint = Vector2.new(0.5, 0.5)
+	fulcrum.Position = UDim2.fromScale(0.1, 0.5)
+	fulcrum.Size = UDim2.fromOffset(6, 6)
+	fulcrum.BackgroundColor3 = Color3.fromRGB(120, 230, 255)
+	fulcrum.BorderSizePixel = 0
+	fulcrum.ZIndex = 2
+	fulcrum.Visible = false
+	fulcrum.Parent = track
+	local fulcrumCorner = Instance.new("UICorner")
+	fulcrumCorner.CornerRadius = UDim.new(1, 0)
+	fulcrumCorner.Parent = fulcrum
+
+	local lever = Instance.new("Frame")
+	lever.Name = "Lever"
+	lever.AnchorPoint = Vector2.new(0, 0.5)
+	lever.Position = UDim2.fromScale(0.1, 0.5)
+	lever.Size = UDim2.new(0.8, 0, 0, 3)
+	lever.BackgroundColor3 = Color3.fromRGB(255, 170, 80)
+	lever.BorderSizePixel = 0
+	lever.ZIndex = 2
+	lever.Visible = false
+	lever.Parent = track
+
+	local countdown = Instance.new("TextLabel")
+	countdown.Name = "Countdown"
+	countdown.AnchorPoint = Vector2.new(0, 0.5)
+	countdown.Position = UDim2.new(1, 12, 0.5, 0)
+	countdown.Size = UDim2.fromOffset(28, 28)
+	countdown.BackgroundTransparency = 1
+	countdown.Font = Enum.Font.GothamBold
+	countdown.TextColor3 = Color3.fromRGB(255, 230, 120)
+	countdown.TextSize = 22
+	countdown.Text = ""
+	countdown.Parent = track
+
+	-- Horizontal title below the track itself: "SPIN" for the catapult,
+	-- "PITCH" for the ballista -- updateAxisVisual keeps it in sync with
+	-- whichever weapon the meter is currently showing.
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.AnchorPoint = Vector2.new(0.5, 0)
+	title.Position = UDim2.new(0.5, 0, 1, 8)
+	title.Size = UDim2.new(1, 0, 0, 20)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBold
+	title.TextColor3 = Color3.fromRGB(230, 230, 235)
+	title.TextSize = 16
+	title.Text = ""
+	title.Parent = track
+
+	return track, dot, lever, fulcrum, countdown, title
 end
 
--- Moves the spin indicator to `frac` (-1 = farthest left, 1 = farthest
--- right) across the track.
-local function updateSpinIndicator(frac)
-	spinIndicator.Position = UDim2.fromScale(0.5 + math.clamp(frac, -1, 1) * 0.5, 0.5)
-end
-
--- Linear triangle wave in [-1, 1]: starts at -1, sweeps to 1 at the half
--- period, back to -1 at the full period, and repeats -- same "linear, no
--- bounce" feel as the power meter's own tween, just looping.
-local function triangleWave(elapsed, period)
-	local phase = (elapsed % period) / period
-	if phase < 0.5 then
-		return -1 + 4 * phase
+-- Positions the axis meter at `level` for `weapon`: the catapult's dot above
+-- (positive) or below (negative) the horizon within [-1, 1]; the ballista's
+-- lever tilted up from flat within [0, 1] (Down only un-lifts back toward
+-- flat -- the range has no negative half, per the Open Gate decision). Also
+-- keeps the meter's own title in sync -- "SPIN" or "PITCH" -- since the same
+-- track shows either weapon depending on what's currently locked/mandated.
+local function updateAxisVisual(weapon, level)
+	if axisTitle then
+		axisTitle.Text = if weapon == "Catapult" then "SPIN" else "PITCH"
 	end
-	return 3 - 4 * phase
+	if weapon == "Catapult" then
+		axisDot.Visible = true
+		axisLever.Visible = false
+		axisFulcrum.Visible = false
+		local frac = math.clamp(level, -1, 1)
+		axisDot.Position = UDim2.fromScale(0.5, 0.5 - frac * 0.4)
+	else
+		axisDot.Visible = false
+		axisLever.Visible = true
+		axisFulcrum.Visible = true
+		local frac = math.clamp(level, 0, 1)
+		axisLever.Rotation = -frac * AXIS_LEVER_MAX_DEGREES
+	end
+end
+
+-- Clamps a dot level into whichever weapon's range applies -- catapult spins
+-- both ways from centre, the ballista only lifts upward from flat.
+local function clampDotLevel(weapon, level)
+	if weapon == "Catapult" then
+		return math.clamp(level, -1, 1)
+	end
+	return math.clamp(level, 0, 1)
 end
 
 -- Each weapon's launch-meter range: catapult force, ballista muzzle speed.
@@ -448,14 +573,16 @@ local function catapultVelocity(direction, force, angleDeg)
 	return heading * (f * math.cos(a)) + Vector3.yAxis * (f * math.sin(a))
 end
 
--- Initial ballista velocity for a unit aim direction and force. Mirrors
--- WeaponManager.launchVelocity's ballista branch -- dead flat along the
--- horizontal aim, speed clamped into the configured range.
-local function ballistaVelocity(direction, force)
+-- Initial ballista velocity for a unit aim direction, force and elevation
+-- angle. Mirrors WeaponManager.launchVelocity's ballista branch -- speed
+-- clamped into the configured range, pitched up by `angleDeg` (session 016;
+-- previously always dead flat) clamped into Config.BallistaMinAngle/MaxAngle.
+local function ballistaVelocity(direction, force, angleDeg)
 	local flat = Vector3.new(direction.X, 0, direction.Z)
 	local heading = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zAxis
 	local speed = math.clamp(force, Config.BallistaMinVelocity, Config.BallistaMuzzleVelocity)
-	return heading * speed
+	local a = math.rad(math.clamp(angleDeg or 0, Config.BallistaMinAngle, Config.BallistaMaxAngle))
+	return heading * (speed * math.cos(a)) + Vector3.yAxis * (speed * math.sin(a))
 end
 
 -- Steps an initial velocity forward under real gravity, raycasting each step,
@@ -492,10 +619,13 @@ local function stepTrace(origin, velocity, spinVector)
 	return points, pos, nil
 end
 
+-- `angleDeg` is the catapult's arc angle or the ballista's elevation
+-- (session 016), depending on `weapon`; `spin` only ever applies to the
+-- catapult.
 local function traceShot(weapon, direction, force, angleDeg, spin)
 	local origin = Config.muzzleOrigin(weapon)
 	if weapon == "Ballista" then
-		return stepTrace(origin, ballistaVelocity(direction, force), nil)
+		return stepTrace(origin, ballistaVelocity(direction, force, angleDeg), nil)
 	end
 	local spinVector = if spin and spin ~= 0 then Vector3.new(0, spin, 0) else nil
 	return stepTrace(origin, catapultVelocity(direction, force, angleDeg), spinVector)
@@ -511,8 +641,8 @@ local function showTrace(weapon, direction, force, angleDeg, spin)
 end
 
 -- Stops just the power tween/connection, leaving the fill bar wherever it was
--- (so it stays visible, frozen, through the catapult's spin stage) rather than
--- zeroing it. Shared by freezing into the spin stage and by the full reset
+-- (so it stays visible, frozen, through the window stage) rather than
+-- zeroing it. Shared by freezing into the window stage and by the full reset
 -- below.
 local function stopPowerTween()
 	if fillConn then
@@ -525,17 +655,20 @@ local function stopPowerTween()
 	end
 end
 
--- Full stop: any in-progress power or spin stage, bars zeroed/hidden, back to
--- idle. Shared by a natural power-meter timeout (cancels the shot), and by
--- after a shot actually fires.
+-- Full stop: any in-progress power or window stage, power bar zeroed, dot
+-- level back to rest, back to idle. Shared by a natural power-meter timeout
+-- (cancels the shot), and by after a shot actually fires. The axis meter
+-- itself is never hidden (session 016: visible the whole turn) -- only its
+-- level resets; onRender's idle branch redraws it at rest.
 local function resetMeter()
 	stopPowerTween()
 	stage = "idle"
+	dotLevel = 0
 	if meterFill then
 		meterFill.Size = UDim2.fromScale(1, 0)
 	end
-	if spinTrack then
-		spinTrack.Visible = false
+	if axisCountdown then
+		axisCountdown.Text = ""
 	end
 end
 
@@ -544,7 +677,7 @@ end
 -- duration of the swing, and runs the fill bar up to the top and back down
 -- once, linearly. Click again anywhere in that pass to freeze it; let the bar
 -- run out untouched and it resets to idle -- no shot, press again for a fresh
--- attempt (this timeout behaviour is unique to the power stage -- the spin
+-- attempt (this timeout behaviour is unique to the power stage -- the window
 -- stage below fires instead of cancelling).
 local function beginSwing(direction)
 	lockedWeapon = state.weapon
@@ -575,79 +708,107 @@ local function beginSwing(direction)
 	fillTween:Play()
 end
 
--- Sends the locked shot to the server and returns to idle. `spin` is only
--- meaningful for the catapult; the ballista always fires with none.
-local function fireLockedShot(spin)
+-- Sends the locked shot to the server and returns to idle. `level` is the
+-- dot's final normalized value: for the catapult it scales spin (both
+-- directions, via Config.CatapultMaxSpin); for the ballista it scales
+-- elevation between Config.BallistaMinAngle and MaxAngle (session 016 --
+-- previously the ballista always fired at angle 0).
+local function fireLockedShot(level)
 	local weapon, direction, angle, force = lockedWeapon, lockedDirection, lockedAngle, lockedForce
 	resetMeter()
+
+	local sendAngle, sendSpin
+	if weapon == "Catapult" then
+		sendAngle = angle
+		sendSpin = level * Config.CatapultMaxSpin
+	else
+		sendAngle = Config.BallistaMinAngle + math.clamp(level, 0, 1) * (Config.BallistaMaxAngle - Config.BallistaMinAngle)
+		sendSpin = 0
+	end
 
 	Remotes.FireWeapon:FireServer({
 		direction = direction,
 		force = force,
-		angle = if weapon == "Catapult" then angle else 0,
-		spin = if weapon == "Catapult" then spin else 0,
+		angle = sendAngle,
+		spin = sendSpin,
 	})
 end
 
--- Third click (catapult only): freezes the spin meter wherever it currently
--- reads and fires at that spin.
-local function freezeSpinAndFire()
-	fireLockedShot(currentSpinValue * Config.CatapultMaxSpin)
+-- Third click: freezes the axis window wherever the dot currently reads and
+-- fires at that level.
+local function freezeWindowAndFire()
+	fireLockedShot(dotLevel)
 end
 
--- Starts the spin stage: oscillation speed scales with how hard the just-
--- frozen power swing was, so a full-power swing is harder to time a clean
--- spin on than a soft one.
-local function beginSpinStage()
-	stage = "spin"
-	spinStartClock = os.clock()
-	local powerFraction = forceFraction("Catapult", lockedForce)
-	spinFreq = SPIN_OSC_MIN_FREQ + (SPIN_OSC_MAX_FREQ - SPIN_OSC_MIN_FREQ) * powerFraction
-	currentSpinValue = -1
-	spinTrack.Visible = true
-	updateSpinIndicator(currentSpinValue)
+-- Starts the shared timed axis window (session 016): the dot resets to rest
+-- (0) regardless of how hard the just-frozen power swing was -- no
+-- power-scaled difficulty coupling replaces session 013's oscillator speed,
+-- per the Open Gate decision.
+local function beginWindowStage()
+	stage = "window"
+	windowStartClock = os.clock()
+	dotLevel = 0
+	updateAxisVisual(lockedWeapon, dotLevel)
+	if axisCountdown then
+		axisCountdown.Text = tostring(WINDOW_DURATION)
+	end
 end
 
 -- Second click: freezes the power bar wherever it is (left visible, not
--- zeroed) and converts that fill to the locked weapon's force/speed. The
--- catapult moves on to the spin stage; the ballista, which never spins,
--- fires immediately -- unchanged from before the spin stage existed.
+-- zeroed), converts that fill to the locked weapon's force/speed, and opens
+-- the axis window -- both weapons now, since the ballista also has an axis
+-- (elevation) to set (session 016; previously it fired immediately here).
 local function freezePowerAndAdvance()
 	stopPowerTween()
 	lockedForce = fractionForce(lockedWeapon, currentFillFraction())
-	if lockedWeapon == "Catapult" then
-		beginSpinStage()
-	else
-		fireLockedShot(0)
-	end
+	beginWindowStage()
 end
 
 -- Every rendered frame while active. Three cases: mid power-swing, nothing to
--- update but the meter's own tween. Mid spin-stage (catapult only), advance
--- the oscillator, move its indicator, and re-show the 3D trace at the live
--- spin value so the curve preview actually sweeps as the meter does -- or
--- auto-fire if the stage has run past SPIN_TIMEOUT unfrozen. Otherwise (idle)
--- preview the shot the current aim would produce: for the catapult that's the
--- force needed to reach the cursor (also what sets the target tick, with no
--- spin yet since it isn't chosen until the swing sequence starts); the
--- ballista previews at full power, matching its always-aim-for-the-top target.
-local function onRender()
+-- update but the meter's own tween (the axis meter stays at rest,
+-- session 016). Mid window-stage, poll Up/Down and move the dot level
+-- continuously at DOT_RATE/second, update the axis visual and countdown, and
+-- re-show the 3D trace at the live level so the curve/elevation preview
+-- actually sweeps as the dot moves -- or auto-fire at whatever the dot
+-- currently reads if the window has run past WINDOW_DURATION unfrozen.
+-- Otherwise (idle) preview the shot the current aim would produce: for the
+-- catapult that's the force needed to reach the cursor (also what sets the
+-- target tick, with no spin yet since it isn't chosen until the swing
+-- sequence starts); the ballista previews at full power and flat (elevation
+-- isn't chosen yet either), matching its always-aim-for-the-top target.
+local function onRender(dt)
 	if stage == "power" then
+		updateAxisVisual(lockedWeapon, 0)
 		return
 	end
 
-	if stage == "spin" then
-		local elapsed = os.clock() - spinStartClock
-		if elapsed >= SPIN_TIMEOUT then
-			currentSpinValue = 1 -- un-frozen: fires pinned to full spin, right side
-			freezeSpinAndFire()
+	if stage == "window" then
+		local elapsed = os.clock() - windowStartClock
+		if elapsed >= WINDOW_DURATION then
+			freezeWindowAndFire()
 			return
 		end
-		currentSpinValue = triangleWave(elapsed, 1 / spinFreq)
-		updateSpinIndicator(currentSpinValue)
-		showTrace("Catapult", lockedDirection, lockedForce, lockedAngle, currentSpinValue * Config.CatapultMaxSpin)
+		local delta = 0
+		if UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+			delta += 1
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+			delta -= 1
+		end
+		dotLevel = clampDotLevel(lockedWeapon, dotLevel + delta * DOT_RATE * dt)
+		updateAxisVisual(lockedWeapon, dotLevel)
+		axisCountdown.Text = tostring(math.max(1, math.ceil(WINDOW_DURATION - elapsed)))
+
+		if lockedWeapon == "Catapult" then
+			showTrace("Catapult", lockedDirection, lockedForce, lockedAngle, dotLevel * Config.CatapultMaxSpin)
+		else
+			local elevation = Config.BallistaMinAngle + dotLevel * (Config.BallistaMaxAngle - Config.BallistaMinAngle)
+			showTrace("Ballista", lockedDirection, lockedForce, elevation)
+		end
 		return
 	end
+
+	updateAxisVisual(state.weapon, 0)
 
 	local direction = currentAimDirection() or Vector3.zero
 	if direction.Magnitude < 1e-3 then
@@ -669,9 +830,11 @@ end
 
 -- Keyboard and left-click while active. The whole fire sequence is the same
 -- button in a row -- click to lock aim and start the power swing, click again
--- to freeze power (and, for the catapult, move on to the spin stage), click a
--- third time to freeze spin and fire. Q/E only nudge the catapult angle before
--- the sequence starts -- once locked, angle can't change mid-shot.
+-- to freeze power and open the axis window, click a third time to freeze the
+-- dot and fire. Q/E only nudge the catapult angle before the sequence starts
+-- -- once locked, angle can't change mid-shot. Up/Down are handled
+-- separately, polled continuously from onRender rather than here (see the
+-- ContextActionService bind in AttackInput.update).
 local function onInput(inputObject, gameProcessed)
 	if gameProcessed then
 		return
@@ -692,14 +855,41 @@ local function onInput(inputObject, gameProcessed)
 
 	if stage == "power" then
 		freezePowerAndAdvance()
-	elseif stage == "spin" then
-		freezeSpinAndFire()
+	elseif stage == "window" then
+		freezeWindowAndFire()
 	elseif shotsRemaining > 0 then
 		local direction = currentAimDirection()
 		if direction and direction.Magnitude > 1e-3 then
 			beginSwing(direction.Unit)
 		end
 	end
+end
+
+-- Up/Down are unused anywhere else in this game, but Roblox's default
+-- character-movement bindings still claim them -- bound here at high
+-- priority with a Sink result so the Attacker's character doesn't walk while
+-- the axis window is open (or at any other time while aiming is active; the
+-- keys do nothing outside the window stage regardless). The actual
+-- continuous movement is polled from onRender via IsKeyDown, not detected
+-- here -- ContextActionService only needs to block the default binding.
+local ARROW_SINK_ACTION = "AttackInputArrowSink"
+
+local function sinkArrowKeys()
+	return Enum.ContextActionResult.Sink
+end
+
+-- Alternate input for the same axis window dot Up/Down drives (session 016
+-- follow-up): each scroll notch nudges dotLevel by WHEEL_STEP, same clamping
+-- as the held-key path. Only acts during the window stage -- harmless the
+-- rest of the time, same as Up/Down doing nothing outside it either.
+local function onWheelChanged(inputObject, gameProcessed)
+	if gameProcessed or stage ~= "window" then
+		return
+	end
+	if inputObject.UserInputType ~= Enum.UserInputType.MouseWheel then
+		return
+	end
+	dotLevel = clampDotLevel(lockedWeapon, dotLevel + inputObject.Position.Z * WHEEL_STEP)
 end
 
 -- One-time setup after the player leaves the title screen. Builds the
@@ -714,7 +904,7 @@ function AttackInput.start()
 	end
 	if not meterGui then
 		meterGui, meterFill, meterTargetLine = makeMeter()
-		spinTrack, spinIndicator = makeSpinMeter(meterGui)
+		axisTrack, axisDot, axisLever, axisFulcrum, axisCountdown, axisTitle = makeAxisMeter(meterGui)
 	end
 	WeaponView.start()
 end
@@ -768,9 +958,19 @@ function AttackInput.update(stateChanged)
 		WeaponView.setActive(state.weapon)
 		WeaponView.setVisible(true)
 		meterGui.Enabled = true
+		updateAxisVisual(state.weapon, 0)
 		publish()
 		renderConn = RunService.RenderStepped:Connect(onRender)
 		inputConn = UserInputService.InputBegan:Connect(onInput)
+		wheelConn = UserInputService.InputChanged:Connect(onWheelChanged)
+		ContextActionService:BindActionAtPriority(
+			ARROW_SINK_ACTION,
+			sinkArrowKeys,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			Enum.KeyCode.Up,
+			Enum.KeyCode.Down
+		)
 	else
 		if renderConn then
 			renderConn:Disconnect()
@@ -780,6 +980,11 @@ function AttackInput.update(stateChanged)
 			inputConn:Disconnect()
 			inputConn = nil
 		end
+		if wheelConn then
+			wheelConn:Disconnect()
+			wheelConn = nil
+		end
+		ContextActionService:UnbindAction(ARROW_SINK_ACTION)
 		resetMeter()
 		if meterGui then
 			meterGui.Enabled = false

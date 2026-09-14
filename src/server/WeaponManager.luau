@@ -136,17 +136,20 @@ end
 
 -- Initial velocity for a shot. Both weapons take their launch meter's fill
 -- (via `force`) from a two-click meter on the client -- the server just clamps
--- it into range. Ballista: dead flat along the horizontal aim, speed between
--- BallistaMinVelocity and BallistaMuzzleVelocity -- fired low it rakes the base
--- and cannot arc over a wall regardless of power. Catapult: horizontal heading
--- from the aim, pitched up by `angle`, scaled by `force`. The client value is a
--- request either way.
+-- it into range. Ballista: horizontal heading from the aim, speed between
+-- BallistaMinVelocity and BallistaMuzzleVelocity, pitched up by `angle`
+-- clamped into BallistaMinAngle/MaxAngle (session 016 -- previously always
+-- dead flat; the range is shallow enough that "cannot arc over" mostly still
+-- holds against a wall built to real height). Catapult: horizontal heading
+-- from the aim, pitched up by `angle`, scaled by `force`. The client value is
+-- a request either way.
 local function launchVelocity(weapon, direction, force, angle)
 	local flat = Vector3.new(direction.X, 0, direction.Z)
 	local heading = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zAxis
 	if weapon == "Ballista" then
 		local speed = math.clamp(force, Config.BallistaMinVelocity, Config.BallistaMuzzleVelocity)
-		return heading * speed
+		local a = math.rad(math.clamp(angle, Config.BallistaMinAngle, Config.BallistaMaxAngle))
+		return heading * (speed * math.cos(a)) + Vector3.yAxis * (speed * math.sin(a))
 	end
 	local f = math.clamp(force, Config.CatapultMinForce, Config.CatapultMaxForce)
 	local a = math.rad(math.clamp(angle, Config.CatapultMinAngle, Config.CatapultMaxAngle))

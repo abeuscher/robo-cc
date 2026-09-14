@@ -45,6 +45,7 @@ local blockRow, weaponRow, weaponAngleLabel
 local previewCells = {}
 local weaponIconCells = {}
 local scoreRows = {} -- { one = {frame, label}, two = {frame, label} }
+local totalLabel
 
 local lastState = nil
 local attackReadout = { weapon = "Ballista", angle = 0 }
@@ -264,12 +265,17 @@ function Hud.start()
 	waitingLabel = label(infoPanel, 18, Color3.fromRGB(230, 200, 120), 8)
 
 	-- Score panel, top-right: a stable Player 1 / Player 2 readout by join
-	-- order, independent of the Builder/Attacker roles that flip every round.
+	-- order, independent of the Builder/Attacker roles that flip every round,
+	-- plus the combined total across the match (score is already cumulative
+	-- over all rounds -- best-of-RoundsPerMatch, or sudden death beyond it --
+	-- session 012; this just adds the single summed figure alongside the two
+	-- per-player ones).
 	local scorePanel = makePanel(UDim2.fromOffset(220, 0), UDim2.new(1, -16, 0, 16), Vector2.new(1, 0))
 	local oneRow, oneText = makeScoreRow(scorePanel, 1)
 	local twoRow, twoText = makeScoreRow(scorePanel, 2)
 	scoreRows.one = { frame = oneRow, text = oneText }
 	scoreRows.two = { frame = twoRow, text = twoText }
+	totalLabel = label(scorePanel, 16, DIM_TEXT_COLOR, 3)
 
 	gui.Parent = player:WaitForChild("PlayerGui")
 end
@@ -295,6 +301,9 @@ local function render()
 	local players = state.players or {}
 	renderScoreRow(scoreRows.one, "1", players.one)
 	renderScoreRow(scoreRows.two, "2", players.two)
+	local s1 = (players.one and state.score and state.score[players.one]) or 0
+	local s2 = (players.two and state.score and state.score[players.two]) or 0
+	totalLabel.Text = string.format("Total: %d", s1 + s2)
 
 	local myRole
 	if state.roles then
@@ -352,11 +361,11 @@ local function render()
 
 	hintLabel.Visible = hintForBuilderBuild or hintForBuilderPosition or hintForBuilderAttack or hintForAttacker
 	if hintForAttacker then
-		hintLabel.Text = "mouse aim · Q/E angle (catapult) · C camera · click, click at meter target to launch"
+		hintLabel.Text = "mouse aim · Q/E angle (catapult) · C camera · click to swing, click to lock power, Up/Down or scroll to aim spin/elevation, click or wait to fire"
 	elseif hintForBuilderAttack then
 		hintLabel.Text = "F to raise your shield — time it against the incoming shot"
 	elseif hintForBuilderPosition then
-		hintLabel.Text = "click the ground behind your wall to place the Flag — this is your only chance to move it"
+		hintLabel.Text = "click the ground behind your wall to move the Flag, as many times as you like — Place Flag when you're ready"
 	else
 		hintLabel.Text = "click cell to place · R rotate · Z flip · Confirm Wall when done"
 	end

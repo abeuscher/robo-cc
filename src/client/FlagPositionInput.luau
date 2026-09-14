@@ -1,11 +1,13 @@
--- Builder-only. Active only during POSITION (session 015): the one chance,
--- after ConfirmBuild and before ATTACK, to relocate the Flag. A single click
--- on the ground behind the wall both chooses the spot and confirms it -- no
--- drag, no separate confirm step, matching the game's existing click-to-place
--- feel (BuildInput's own click-to-place, Confirm Wall). The server re-clamps
--- into Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance regardless of
--- what the client thought was valid; this module's own bounds check only
--- decides whether to show the ghost and let the click fire at all.
+-- Builder-only. Active only during POSITION: the window, after ConfirmBuild
+-- and before ATTACK, to relocate the Flag. A click on the ground behind the
+-- wall repositions it -- repeatable (session 016: the wall is already live
+-- physics by now, so the Builder may want to see it settle before committing
+-- to a spot) -- and a "Place Flag" button advances to ATTACK once they're
+-- happy with where it is, revealing it even if it was never clicked at all.
+-- The server re-clamps into Config.FlagPlacementMaxOffsetX/MinDistance/
+-- MaxDistance regardless of what the client thought was valid; this module's
+-- own bounds check only decides whether to show the ghost and let the click
+-- fire at all.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -25,7 +27,42 @@ local GHOST_COLOR = Color3.fromRGB(255, 105, 180)
 
 local active = false
 local ghost
+local placeGui
 local renderConn, clickConn
+
+-- The "Place Flag" button (session 016), bottom-middle -- same screen slot as
+-- BuildInput's "Confirm Wall", since the two are never active at once. Fires
+-- PlaceFlag; the server decides whether to honour it (POSITION phase, this
+-- player is the Builder) and reveals the Flag wherever it currently sits
+-- before advancing to ATTACK.
+local function makePlaceGui()
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "PlaceFlag"
+	gui.ResetOnSpawn = false
+
+	local button = Instance.new("TextButton")
+	button.AnchorPoint = Vector2.new(0.5, 1)
+	button.Position = UDim2.fromScale(0.5, 0.95)
+	button.Size = UDim2.fromOffset(220, 56)
+	button.BackgroundColor3 = Color3.fromRGB(200, 90, 150)
+	button.AutoButtonColor = true
+	button.Font = Enum.Font.GothamBold
+	button.Text = "Place Flag"
+	button.TextColor3 = Color3.fromRGB(255, 255, 255)
+	button.TextScaled = true
+	button.Parent = gui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = button
+
+	button.Activated:Connect(function()
+		Remotes.PlaceFlag:FireServer()
+	end)
+
+	gui.Parent = player:WaitForChild("PlayerGui")
+	return gui
+end
 
 local function ensureGhost()
 	if ghost then
@@ -113,6 +150,8 @@ end
 
 function FlagPositionInput.start()
 	ensureGhost()
+	placeGui = placeGui or makePlaceGui()
+	placeGui.Enabled = false
 end
 
 -- Called on every StateChanged. Live only while phase == "POSITION" and the
@@ -127,6 +166,8 @@ function FlagPositionInput.update(state)
 
 	if active then
 		ensureGhost()
+		placeGui = placeGui or makePlaceGui()
+		placeGui.Enabled = true
 		renderConn = RunService.RenderStepped:Connect(onRender)
 		clickConn = UserInputService.InputBegan:Connect(onInput)
 	else
@@ -139,6 +180,9 @@ function FlagPositionInput.update(state)
 			clickConn = nil
 		end
 		hideGhost()
+		if placeGui then
+			placeGui.Enabled = false
+		end
 	end
 end
 

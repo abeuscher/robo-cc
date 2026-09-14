@@ -36,6 +36,25 @@ local function computeFlagPosition(offsetX, distance)
 	return Vector3.new(offsetX, Config.GroundLevel + Config.FlagSize.Y / 2, Config.BuildZoneOrigin.Z + distance)
 end
 
+-- Session 016: the Flag isn't part of the board while the wall is being
+-- built -- hidden (and non-colliding/non-queryable, so it can't be bumped
+-- into or raycast onto while invisible) from every reset through POSITION,
+-- until the Builder actually places it. Safe to toggle freely: FlagMonitor's
+-- Touched handler already ignores everything unless armed (ATTACK through
+-- the RESOLVE settle beat), so a hidden Flag being touched during
+-- BUILD/POSITION was already a no-op even before this.
+local function hideFlag(flag)
+	flag.Transparency = 1
+	flag.CanCollide = false
+	flag.CanQuery = false
+end
+
+local function revealFlag(flag)
+	flag.Transparency = 0
+	flag.CanCollide = true
+	flag.CanQuery = true
+end
+
 local Arena = {}
 
 function Arena.root()
@@ -178,35 +197,53 @@ function Arena.build()
 
 	-- The Flag (session 015, replaces the Princess): hit-or-not, not toppled,
 	-- so it stays anchored for good -- no PhysicalProperties needed.
-	-- FlagMonitor watches it via Touched.
+	-- FlagMonitor watches it via Touched. Starts hidden (session 016) -- it
+	-- isn't placed yet.
 	local flag =
 		part("Flag", Config.FlagSize, computeFlagPosition(DEFAULT_FLAG_OFFSET_X, DEFAULT_FLAG_DISTANCE), FLAG_COLOR)
 	flag.Parent = root
+	hideFlag(flag)
 
 	return root
 end
 
--- Per-round reset: puts the Flag back at its default position (session 015 --
--- the Builder relocates it fresh each round, in POSITION, starting from
--- here). The Flag never unanchors, so there's no leftover velocity to clear.
+-- Per-round reset: puts the Flag back at its default position and hides it
+-- again (session 016 -- it stays off the board through the new round's BUILD
+-- and POSITION until the Builder re-places it). The Flag never unanchors, so
+-- there's no leftover velocity to clear.
 function Arena.resetRound()
 	local root = Arena.root()
 	local flag = root:FindFirstChild("Flag")
 	if flag then
 		flag.CFrame = CFrame.new(computeFlagPosition(DEFAULT_FLAG_OFFSET_X, DEFAULT_FLAG_DISTANCE))
+		hideFlag(flag)
 	end
 	return root
 end
 
--- Called once by the Builder during POSITION (session 015). `offsetX` and
--- `distance` have already been validated/clamped by the caller against
--- Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance.
+-- Called by the Builder during POSITION (session 015; repeatable as of
+-- session 016 -- see MatchController.relocateFlag). `offsetX` and `distance`
+-- have already been validated/clamped by the caller against
+-- Config.FlagPlacementMaxOffsetX/MinDistance/MaxDistance. Reveals the Flag
+-- the first time this is called, same as showFlag() below.
 function Arena.relocateFlag(offsetX, distance)
 	local flag = Arena.root():FindFirstChild("Flag")
 	if not flag then
 		return
 	end
 	flag.CFrame = CFrame.new(computeFlagPosition(offsetX, distance))
+	revealFlag(flag)
+end
+
+-- Reveals the Flag wherever it currently sits, without moving it (session
+-- 016) -- the fallback for confirmFlagPlacement when the Builder advances
+-- without ever clicking to relocate it, so it doesn't stay invisible forever
+-- at its default spot. A no-op re-reveal if relocateFlag already did this.
+function Arena.showFlag()
+	local flag = Arena.root():FindFirstChild("Flag")
+	if flag then
+		revealFlag(flag)
+	end
 end
 
 -- The Flag's current world position -- ShieldManager reads this to keep the

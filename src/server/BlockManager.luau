@@ -14,7 +14,9 @@
 --
 -- One density for all blocks, so a bigger component weighs more at equal
 -- density. Blocks stay anchored through BUILD; releaseAll() unanchors the
--- wall into server-owned physics at ATTACK start.
+-- wall into server-owned physics as soon as BUILD is confirmed (session 016
+-- -- moved from ATTACK start, so the Builder can see the wall actually settle
+-- under gravity before committing to a Flag position).
 --
 -- A UnionOperation's own CFrame after UnionAsync doesn't necessarily sit at
 -- its shape's bounding-box centre, and Roblox doesn't document exactly where
@@ -271,10 +273,11 @@ function BlockManager.placeCurrent(centre, rotation, flipped)
 	return true
 end
 
--- ATTACK-phase transition. Every body on the wall becomes server-owned
--- physics: unanchor first, then SetNetworkOwner(nil) (it errors on an
--- anchored part). Everything here was placed through placeCurrent(), so
--- there's nothing unplaced left over to clean up instead.
+-- BUILD -> POSITION transition (session 016 -- previously ATTACK start).
+-- Every body on the wall becomes server-owned physics: unanchor first, then
+-- SetNetworkOwner(nil) (it errors on an anchored part). Everything here was
+-- placed through placeCurrent(), so there's nothing unplaced left over to
+-- clean up instead.
 function BlockManager.releaseAll()
 	for _, part in placedParts do
 		part.Anchored = false
